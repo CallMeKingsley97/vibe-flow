@@ -186,6 +186,7 @@
 - 设置页增加主动检查更新、签名下载和安装重启；Updater 公钥、GitHub Release endpoint 与签名产物已验证；
 - CI 增加 macOS、Windows、Linux 桌面构建矩阵；Release workflow 配置 Updater 私钥、Universal macOS 和 `latest.json`，平台安装包按 0.1.0 决策不签名；
 - 修复 Release validate job 缺少 GTK/WebKit 系统依赖导致的 `glib-sys` 编译失败；
+- Release validate job 增加 updater 私钥与密码的真实签名预检，避免三平台构建结束后才发现 Secret 不匹配；
 - 新增 README、安装、快速开始、故障排查、隐私、已知限制、性能、发布流程、Changelog 和 0.1.0 发布说明；
 - 删除开发态视觉 fixture、未使用 Zustand 依赖和未使用会话 IPC；增加版本一致性和生产构建内容检查；
 - 前端 8 个测试、Rust 13 个测试、Clippy、rustfmt、ESLint、TypeScript、Prettier、生产构建和签名 updater bundle 通过；

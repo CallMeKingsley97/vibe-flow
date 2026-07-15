@@ -15,7 +15,7 @@
 Updater 必需：
 
 - `TAURI_SIGNING_PRIVATE_KEY`
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（当前无密码密钥可留空）
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（必须与当前加密私钥匹配，复制时不得包含文件末尾换行）
 
 0.1.0 不使用 Apple Developer ID 或 Windows Authenticode 证书。平台安装包为未签名版本，但 updater artifact 仍必须使用上述私钥签名。私钥和密码禁止提交到仓库。
 
