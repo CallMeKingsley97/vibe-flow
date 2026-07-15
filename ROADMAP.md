@@ -188,6 +188,8 @@
 - 修复 Release validate job 缺少 GTK/WebKit 系统依赖导致的 `glib-sys` 编译失败；
 - Release validate job 增加 updater 私钥与密码的真实签名预检，避免三平台构建结束后才发现 Secret 不匹配；
 - 补齐 Tauri bundle 跨平台图标声明，并在发布检查中验证 Windows ICO、macOS ICNS 和 Linux 方形 PNG；
+- 新增深色、浅色、跟随系统三态主题，支持本地持久化和系统主题实时同步；
+- 会话浏览器改为自适应剩余高度的独立滚动区，修复长列表末项被窗口边界截断；
 - 新增 README、安装、快速开始、故障排查、隐私、已知限制、性能、发布流程、Changelog 和 0.1.0 发布说明；
 - 删除开发态视觉 fixture、未使用 Zustand 依赖和未使用会话 IPC；增加版本一致性和生产构建内容检查；
 - 前端 8 个测试、Rust 13 个测试、Clippy、rustfmt、ESLint、TypeScript、Prettier、生产构建和签名 updater bundle 通过；

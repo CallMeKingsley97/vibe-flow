@@ -70,7 +70,7 @@ export function DashboardPage() {
   const visibleError = sessionModel.error ?? localHistory.error ?? eventModel.error;
 
   return (
-    <>
+    <div className="dashboard-page">
       {visibleError ? <div className="error-banner">{visibleError}</div> : null}
       <div className="source-overview panel">
         <div>
@@ -210,6 +210,6 @@ export function DashboardPage() {
           </div>
         </section>
       </div>
-    </>
+    </div>
   );
 }

@@ -577,6 +577,13 @@ p {
   padding: 24px 28px 32px;
 }
 
+.dashboard-page {
+  display: flex;
+  height: calc(100vh - 120px);
+  min-height: 0;
+  flex-direction: column;
+}
+
 .source-overview {
   display: flex;
   align-items: center;
@@ -636,20 +643,25 @@ p {
 .dashboard-grid {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
   gap: 20px;
-  min-height: calc(100vh - 120px);
 }
 
 .sidebar,
 .workspace {
   display: flex;
+  min-height: 0;
   flex-direction: column;
   gap: 16px;
 }
 
 .session-browser {
+  display: flex;
+  overflow: hidden;
   min-height: 0;
   flex: 1;
+  flex-direction: column;
 }
 
 .source-tabs {
@@ -730,14 +742,15 @@ button:disabled {
 
 .session-list {
   display: flex;
+  min-height: 0;
+  flex: 1;
   flex-direction: column;
   gap: 8px;
-  padding: 10px;
-}
-
-.session-browser .session-list {
-  max-height: calc(100vh - 290px);
-  overflow: auto;
+  padding: 10px 10px 28px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 10px 24px;
+  scrollbar-gutter: stable;
 }
 
 .session-item {
@@ -1841,6 +1854,359 @@ button:disabled {
 .command-audit-row.risk-critical {
   border-left-color: #ee7545;
   background: #1c1412;
+}
+
+.theme-settings-card {
+  grid-column: 1 / -1;
+}
+
+.theme-current {
+  align-self: flex-start;
+  padding: 5px 8px;
+  color: #72d8bd;
+  border: 1px solid #285246;
+  border-radius: 999px;
+  background: #10251f;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.theme-options button {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 66px;
+  padding: 10px 12px;
+  color: #8292a5;
+  text-align: left;
+  border: 1px solid #243548;
+  border-radius: 10px;
+  background: #0b141e;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.theme-options button:hover {
+  border-color: #356052;
+  background: #0f1a23;
+  transform: translateY(-1px);
+}
+
+.theme-options button.active {
+  color: #bce9dd;
+  border-color: #39816d;
+  background: linear-gradient(145deg, #112820, #0c1b18);
+  box-shadow: inset 0 0 0 1px rgba(39, 225, 193, 0.08);
+}
+
+.theme-options button > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.theme-options strong {
+  color: #d6e1ea;
+  font-size: 11px;
+}
+
+.theme-options small {
+  color: #647588;
+  font-size: 9px;
+}
+
+.theme-preview {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  overflow: hidden;
+  color: #77d8c0;
+  border: 1px solid #2c4053;
+  border-radius: 9px;
+  background: #111c28;
+  font-size: 16px;
+  place-items: center;
+}
+
+.theme-preview-system {
+  color: #4eaa98;
+  background: linear-gradient(90deg, #f3f6f8 50%, #111c28 50%);
+}
+
+.theme-preview-light {
+  color: #47657a;
+  background: #f5f8fa;
+}
+
+:root[data-theme="light"] {
+  color: #172331;
+  background: #eef3f6;
+  color-scheme: light;
+}
+
+:root[data-theme="light"] body {
+  background:
+    radial-gradient(circle at 8% -10%, rgba(20, 166, 145, 0.11), transparent 31%), #eef3f6;
+}
+
+:root[data-theme="light"] .topbar {
+  border-bottom-color: #d5dfe6;
+  background: rgba(248, 251, 252, 0.9);
+  box-shadow: 0 1px 12px rgba(32, 55, 73, 0.05);
+}
+
+:root[data-theme="light"] .main-nav a {
+  color: #657789;
+}
+
+:root[data-theme="light"] .main-nav a:hover,
+:root[data-theme="light"] .main-nav a.active {
+  color: #163d38;
+  background: #dcece8;
+}
+
+:root[data-theme="light"] .panel {
+  border-color: #d5dfe6;
+  background: rgba(251, 253, 254, 0.94);
+  box-shadow: 0 16px 46px rgba(38, 61, 78, 0.08);
+}
+
+:root[data-theme="light"] .settings-card-header,
+:root[data-theme="light"] .panel-header,
+:root[data-theme="light"] .source-tabs,
+:root[data-theme="light"] .timeline-filters,
+:root[data-theme="light"] .detail-view-tabs,
+:root[data-theme="light"] .execution-flow,
+:root[data-theme="light"] .flow-phase header {
+  border-color: #dce4e9;
+}
+
+:root[data-theme="light"] .settings-card-header p,
+:root[data-theme="light"] .page-heading p,
+:root[data-theme="light"] .source-overview p,
+:root[data-theme="light"] .session-detail-header p,
+:root[data-theme="light"] .execution-flow-header p,
+:root[data-theme="light"] .insight-hero p,
+:root[data-theme="light"] .insight-ranking > p,
+:root[data-theme="light"] .risk-operations > p,
+:root[data-theme="light"] .command-audit > p {
+  color: #687b8c;
+}
+
+:root[data-theme="light"] .settings-control,
+:root[data-theme="light"] .storage-grid div,
+:root[data-theme="light"] .capability-list li,
+:root[data-theme="light"] .source-status,
+:root[data-theme="light"] .update-status,
+:root[data-theme="light"] .insight-metrics div,
+:root[data-theme="light"] .insight-ranking,
+:root[data-theme="light"] .risk-operations,
+:root[data-theme="light"] .command-audit {
+  border-color: #d7e1e7;
+  background: #f5f8fa;
+}
+
+:root[data-theme="light"] .settings-control strong,
+:root[data-theme="light"] .storage-grid dd,
+:root[data-theme="light"] .capability-list strong,
+:root[data-theme="light"] .source-status-name,
+:root[data-theme="light"] .timeline-summary,
+:root[data-theme="light"] .execution-flow-header h3,
+:root[data-theme="light"] .timeline-section-title h3,
+:root[data-theme="light"] .flow-phase h4,
+:root[data-theme="light"] .flow-node strong,
+:root[data-theme="light"] .insight-metrics strong,
+:root[data-theme="light"] .insight-ranking h4,
+:root[data-theme="light"] .risk-operations h4,
+:root[data-theme="light"] .risk-operation code,
+:root[data-theme="light"] .command-audit-row code,
+:root[data-theme="light"] .command-audit summary,
+:root[data-theme="light"] .theme-options strong {
+  color: #263746;
+}
+
+:root[data-theme="light"] .settings-control small,
+:root[data-theme="light"] .storage-grid dt,
+:root[data-theme="light"] .capability-list small,
+:root[data-theme="light"] .session-meta,
+:root[data-theme="light"] .session-workspace,
+:root[data-theme="light"] .timeline-meta,
+:root[data-theme="light"] .flow-phase time,
+:root[data-theme="light"] .flow-node small,
+:root[data-theme="light"] .flow-node em,
+:root[data-theme="light"] .insight-metrics span,
+:root[data-theme="light"] .insight-rank-row > span,
+:root[data-theme="light"] .insight-rank-row > strong,
+:root[data-theme="light"] .risk-operation time,
+:root[data-theme="light"] .command-audit-row time,
+:root[data-theme="light"] .theme-options small,
+:root[data-theme="light"] .health {
+  color: #6b7e90;
+}
+
+:root[data-theme="light"] .number-stepper,
+:root[data-theme="light"] .settings-card input[type="number"],
+:root[data-theme="light"] .settings-card textarea,
+:root[data-theme="light"] .timeline-search input,
+:root[data-theme="light"] .timeline-select select {
+  color: #223240;
+  border-color: #cbd8e0;
+  background: #ffffff;
+}
+
+:root[data-theme="light"] .number-stepper > span,
+:root[data-theme="light"] .number-stepper button {
+  border-color: #d3dee5;
+}
+
+:root[data-theme="light"] .number-stepper button,
+:root[data-theme="light"] .secondary-button,
+:root[data-theme="light"] .flow-navigation button {
+  color: #526879;
+  background: #eef3f6;
+}
+
+:root[data-theme="light"] .secondary-button,
+:root[data-theme="light"] .flow-navigation button {
+  border-color: #cad6de;
+}
+
+:root[data-theme="light"] .timeline-filters {
+  background: linear-gradient(180deg, rgba(244, 248, 250, 0.94), rgba(238, 244, 247, 0.9));
+}
+
+:root[data-theme="light"] .source-tabs button:hover,
+:root[data-theme="light"] .source-tabs button.active,
+:root[data-theme="light"] .session-item:hover,
+:root[data-theme="light"] .session-item.selected,
+:root[data-theme="light"] .flow-node:hover {
+  color: #24463f;
+  border-color: #c8d9d5;
+  background: #e7f1ee;
+}
+
+:root[data-theme="light"] .timeline-item {
+  border-color: #e0e7eb;
+}
+
+:root[data-theme="light"] .execution-flow {
+  background: linear-gradient(180deg, rgba(214, 236, 231, 0.55), transparent 55%), #f4f8f9;
+}
+
+:root[data-theme="light"] .flow-navigation {
+  border-color: #d5e0e5;
+  background: rgba(248, 251, 252, 0.88);
+}
+
+:root[data-theme="light"] .flow-minimap {
+  background: #e5ecef;
+}
+
+:root[data-theme="light"] .flow-minimap button {
+  background: #a8b8c2;
+}
+
+:root[data-theme="light"] .flow-phase {
+  border-color: #d2dee5;
+  background: rgba(252, 254, 255, 0.96);
+  box-shadow: 0 10px 26px rgba(48, 71, 86, 0.09);
+}
+
+:root[data-theme="light"] .flow-phase.has-risk {
+  border-color: #dda77d;
+  background: linear-gradient(180deg, rgba(255, 224, 198, 0.52), transparent 80px), #fffdfb;
+}
+
+:root[data-theme="light"] .flow-node-list::before {
+  background: #cedbe2;
+}
+
+:root[data-theme="light"] .flow-node > i {
+  background: #f9fbfc;
+}
+
+:root[data-theme="light"] .flow-node > b {
+  color: #5b7181;
+  background: #e5edf1;
+}
+
+:root[data-theme="light"] .insight-hero {
+  border-color: #d2e0e4;
+  background: linear-gradient(135deg, #eef7f5, #f7fafb);
+}
+
+:root[data-theme="light"] .insight-rank-row > i {
+  background: #dce7eb;
+}
+
+:root[data-theme="light"] .risk-operation,
+:root[data-theme="light"] .command-audit-row {
+  color: #4e6070;
+  border-color: #d8dfe4;
+  background: #f7f9fa;
+}
+
+:root[data-theme="light"] .risk-operation.risk-critical {
+  border-color: #d49398;
+  background: #fff0f1;
+}
+
+:root[data-theme="light"] .risk-operation.risk-high,
+:root[data-theme="light"] .command-audit-row.risk-high,
+:root[data-theme="light"] .command-audit-row.risk-critical {
+  border-color: #d9aa84;
+  background: #fff5ed;
+}
+
+:root[data-theme="light"] .settings-savebar {
+  color: #66798a;
+  border-color: #ccd8df;
+  background: rgba(250, 252, 253, 0.96);
+  box-shadow: 0 12px 30px rgba(42, 61, 75, 0.12);
+}
+
+:root[data-theme="light"] .theme-options button {
+  color: #627587;
+  border-color: #d2dee5;
+  background: #f5f8fa;
+}
+
+:root[data-theme="light"] .theme-options button:hover {
+  border-color: #91b8ad;
+  background: #edf6f3;
+}
+
+:root[data-theme="light"] .theme-options button.active {
+  color: #24554a;
+  border-color: #55a892;
+  background: linear-gradient(145deg, #e2f3ee, #f1f8f6);
+}
+
+:root[data-theme="light"] .theme-current {
+  color: #26715f;
+  border-color: #9ccabd;
+  background: #e5f4f0;
+}
+
+:root[data-theme="light"] .backend-offline {
+  color: #9d343b;
+  border-color: #e9b7bb;
+  background: #fff0f1;
+}
+
+:root[data-theme="light"] .recovery-banner {
+  color: #795b18;
+  border-color: #e4d19a;
+  background: #fff9e8;
 }
 
 @media (max-width: 1050px) {

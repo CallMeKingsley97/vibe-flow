@@ -6,6 +6,7 @@ import { checkForUpdate, installAvailableUpdate } from "../../shared/api/capture
 import type { UpdateCheck } from "../../shared/contracts/capture";
 import { formatError } from "../../shared/lib/error";
 import { RetentionSettingsCard } from "../../widgets/data-retention/RetentionSettingsCard";
+import { ThemeSettingsCard } from "../../widgets/theme-settings/ThemeSettingsCard";
 
 function bytes(value: number) {
   if (value < 1024) return `${value} B`;
@@ -98,8 +99,8 @@ export function SettingsPage() {
     <div className="settings-page">
       <header className="page-heading">
         <div>
-          <h2>Agent 数据管理</h2>
-          <p>管理本地 Agent 历史的保留周期、磁盘占用和安全诊断信息。</p>
+          <h2>设置</h2>
+          <p>管理界面外观、本地 Agent 数据、更新和安全诊断信息。</p>
         </div>
       </header>
       {model.error ? (
@@ -114,6 +115,8 @@ export function SettingsPage() {
       ) : null}
 
       <form className="settings-grid" onSubmit={(event) => void handleSave(event)}>
+        <ThemeSettingsCard />
+
         <RetentionSettingsCard
           retentionDays={retentionDays}
           autoCleanup={autoCleanup}
