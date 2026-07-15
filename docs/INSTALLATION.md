@@ -2,11 +2,11 @@
 
 ## macOS
 
-从 GitHub Release 下载对应 Apple Silicon 或 Intel 的 DMG，拖入 Applications。正式发布包使用 Apple Developer ID 签名并完成 notarization。
+从 GitHub Release 下载 Universal DMG，拖入 Applications。0.1.0 未使用 Apple Developer ID 签名或 notarization，Gatekeeper 会显示无法验证开发者。
 
 ## Windows
 
-下载 MSI 或 NSIS 安装包。正式发布包使用 Authenticode 证书签名；安装时应显示发布者身份。
+下载 MSI 或 NSIS 安装包。0.1.0 未使用 Authenticode 证书签名，SmartScreen 会显示未知发布者。
 
 ## Linux
 

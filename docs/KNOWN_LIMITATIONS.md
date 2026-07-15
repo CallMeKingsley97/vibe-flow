@@ -7,3 +7,4 @@
 - Vibe Flow 不启动 Agent，因此只能展示 Agent 已写入历史文件的内容。
 - 首个版本的三平台兼容由 CI 构建矩阵覆盖；不同 Linux 桌面环境仍可能存在 WebKitGTK 差异。
 - 自动更新依赖 GitHub Release 可访问性；离线环境需手动下载安装包。
+- 0.1.0 的 macOS 和 Windows 安装包没有平台证书签名，会触发 Gatekeeper 或 SmartScreen 警告；Updater artifact 仍有独立签名和客户端验签。

@@ -17,11 +17,11 @@
 
 **当前阶段：M6 MVP 稳定化与首个版本发布已完成**
 
-**总体状态：M0～M6 已完成；0.1.0 已达到可签名发布状态。**
+**总体状态：M0～M6 已完成；0.1.0 已达到未签名平台包发布状态。**
 
 ### Now
 
-- 将 updater 私钥与平台证书写入 GitHub Secrets；
+- 使用已配置的 updater 私钥生成更新签名；
 - 推送 `v0.1.0` 标签并审核 Draft Release；
 - 在真实安装机执行最终安装与更新冒烟测试。
 
@@ -133,7 +133,7 @@
 - [x] 建立 10,000 事件性能基线和回归阈值；
 - [x] 完成 SQLite quick check、损坏备份恢复和 WAL 异常退出恢复；
 - [x] 配置 macOS、Windows、Linux CI 构建矩阵；
-- [x] 配置 macOS、Windows 平台签名和 updater 产物签名；
+- [x] 根据发布决策取消 macOS、Windows 平台签名，保留 updater 产物签名；
 - [x] 配置自动更新、公钥验签和设置页安装入口；
 - [x] 编写安装、快速开始、故障排查、隐私和已知限制；
 - [x] 完成 0.1.0 版本、发布说明和 release workflow；
@@ -184,17 +184,17 @@
 - 新增启动扫描端到端测试、风险入口定位测试和 10,000 事件性能回归；本地基线约 33 ms；
 - SQLite 启动增加 `quick_check`，明确损坏时自动备份并重建，UI 展示旧数据库备份路径；
 - 设置页增加主动检查更新、签名下载和安装重启；Updater 公钥、GitHub Release endpoint 与签名产物已验证；
-- CI 增加 macOS、Windows、Linux 桌面构建矩阵；Release workflow 配置平台证书、Updater 私钥、Universal macOS 和 `latest.json`；
+- CI 增加 macOS、Windows、Linux 桌面构建矩阵；Release workflow 配置 Updater 私钥、Universal macOS 和 `latest.json`，平台安装包按 0.1.0 决策不签名；
 - 新增 README、安装、快速开始、故障排查、隐私、已知限制、性能、发布流程、Changelog 和 0.1.0 发布说明；
 - 删除开发态视觉 fixture、未使用 Zustand 依赖和未使用会话 IPC；增加版本一致性和生产构建内容检查；
 - 前端 8 个测试、Rust 13 个测试、Clippy、rustfmt、ESLint、TypeScript、Prettier、生产构建和签名 updater bundle 通过；
-- M6 完成，0.1.0 已达到可签名发布状态。
+- M6 完成，0.1.0 已达到平台包未签名、更新包签名的发布状态。
 
 此前已完成工程底座、会话事件闭环、四类 Agent 自动发现、执行流程和真实长会话验证；受控进程采集已从当前产品删除。
 
 ## 7. 下一次开发建议
 
-1. 将本地 updater 私钥和 Apple、Windows 证书安全写入 GitHub Secrets；
+1. 推送本次 workflow 调整并等待三平台 CI 通过；
 2. 推送 `v0.1.0` 标签，审核三平台 Draft Release 和 `latest.json`；
 3. 在真实安装机完成安装、升级、卸载和数据保留冒烟测试；
 4. 增加按 Agent、项目和时间范围的聚合统计；
