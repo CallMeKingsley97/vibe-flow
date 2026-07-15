@@ -21,6 +21,18 @@ if (!tauriConfig.bundle?.createUpdaterArtifacts || !updater?.pubkey || !updater.
   throw new Error("Updater 产物、公钥或更新端点尚未完整配置");
 }
 
+const bundleIcons = new Set(tauriConfig.bundle?.icon ?? []);
+for (const requiredIcon of [
+  "icons/32x32.png",
+  "icons/128x128.png",
+  "icons/icon.icns",
+  "icons/icon.ico",
+]) {
+  if (!bundleIcons.has(requiredIcon) || !existsSync(`src-tauri/${requiredIcon}`)) {
+    throw new Error(`缺少发布图标配置或文件：${requiredIcon}`);
+  }
+}
+
 for (const forbidden of [
   "src-tauri/tauri.key",
   "src-tauri/updater.key",
