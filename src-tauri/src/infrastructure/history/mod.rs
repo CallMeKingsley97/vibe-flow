@@ -60,8 +60,10 @@ mod tests {
             &path,
             concat!(
                 "{\"type\":\"session_meta\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"payload\":{\"id\":\"codex-1\",\"cwd\":\"/repo\"}}\n",
+                "{\"type\":\"turn_context\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"payload\":{\"model\":\"gpt-5\",\"effort\":\"high\"}}\n",
                 "{\"type\":\"event_msg\",\"timestamp\":\"2026-07-15T00:00:01Z\",\"payload\":{\"type\":\"user_message\",\"message\":\"Build it\"}}\n",
                 "{\"type\":\"event_msg\",\"timestamp\":\"2026-07-15T00:00:02Z\",\"payload\":{\"type\":\"agent_message\",\"message\":\"Done\"}}\n",
+                "{\"type\":\"event_msg\",\"timestamp\":\"2026-07-15T00:00:02Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":1200,\"cached_input_tokens\":800,\"output_tokens\":300,\"reasoning_output_tokens\":100,\"total_tokens\":1500}}}}\n",
                 "{\"type\":\"response_item\",\"timestamp\":\"2026-07-15T00:00:03Z\",\"payload\":{\"type\":\"custom_tool_call\",\"name\":\"exec\",\"call_id\":\"call-1\",\"input\":\"sed -n '1,200p' /Users/test/.codex/skills/openai-docs/SKILL.md\"}}\n",
                 "{\"type\":\"response_item\",\"timestamp\":\"2026-07-15T00:00:03Z\",\"payload\":{\"type\":\"custom_tool_call\",\"name\":\"exec\",\"call_id\":\"call-command\",\"input\":\"const r = await Promise.all([tools.exec_command({ cmd: \\\"git status --short\\\" }), tools.exec_command({ cmd: \\\"cargo test\\\" })]);\"}}\n",
                 "{\"type\":\"response_item\",\"timestamp\":\"2026-07-15T00:00:04Z\",\"payload\":{\"type\":\"function_call\",\"name\":\"mcp__docs__search\",\"call_id\":\"call-2\"}}\n"
@@ -75,6 +77,9 @@ mod tests {
         assert_eq!(session.source, SessionSource::Codex);
         assert_eq!(session.external_id, "codex-1");
         assert_eq!(session.name, "Build it");
+        assert_eq!(session.usage.model.as_deref(), Some("gpt-5"));
+        assert_eq!(session.usage.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(session.usage.total_tokens, Some(1_500));
         assert!(
             session
                 .events
@@ -127,7 +132,7 @@ mod tests {
             &path,
             concat!(
                 "{\"type\":\"user\",\"sessionId\":\"claude-1\",\"cwd\":\"/repo\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"Explain this\"}}\n",
-                "{\"type\":\"assistant\",\"sessionId\":\"claude-1\",\"timestamp\":\"2026-07-15T00:00:01Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Answer\"},{\"type\":\"tool_use\",\"name\":\"Read\",\"id\":\"tool-1\"},{\"type\":\"tool_use\",\"name\":\"Bash\",\"id\":\"tool-2\",\"input\":{\"command\":\"cargo test\"}}]}}\n"
+                "{\"type\":\"assistant\",\"sessionId\":\"claude-1\",\"timestamp\":\"2026-07-15T00:00:01Z\",\"reasoningEffort\":\"medium\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-1\",\"usage\":{\"input_tokens\":200,\"cache_read_input_tokens\":500,\"output_tokens\":100},\"content\":[{\"type\":\"text\",\"text\":\"Answer\"},{\"type\":\"tool_use\",\"name\":\"Read\",\"id\":\"tool-1\"},{\"type\":\"tool_use\",\"name\":\"Bash\",\"id\":\"tool-2\",\"input\":{\"command\":\"cargo test\"}}]}}\n"
             ),
         )
         .expect("fixture should write");
@@ -137,6 +142,9 @@ mod tests {
             .expect("session should exist");
         assert_eq!(session.source, SessionSource::Claude);
         assert_eq!(session.name, "Explain this");
+        assert_eq!(session.usage.model.as_deref(), Some("claude-opus-4-1"));
+        assert_eq!(session.usage.reasoning_effort.as_deref(), Some("medium"));
+        assert_eq!(session.usage.total_tokens, Some(800));
         assert!(
             session
                 .events
@@ -165,7 +173,7 @@ mod tests {
         let path = fixture_path("json");
         fs::write(
             &path,
-            r#"{"sessionId":"gemini-1","projectPath":"/repo","messages":[{"role":"user","timestamp":"2026-07-15T00:00:00Z","content":"Review code"},{"role":"model","timestamp":"2026-07-15T00:00:01Z","content":"Looks good","functionCalls":[{"name":"run_shell_command","args":{"command":"cargo test"}}]}]}"#,
+            r#"{"sessionId":"gemini-1","projectPath":"/repo","model":"gemini-2.5-pro","thinkingLevel":"high","messages":[{"role":"user","timestamp":"2026-07-15T00:00:00Z","content":"Review code"},{"role":"model","timestamp":"2026-07-15T00:00:01Z","content":"Looks good","usageMetadata":{"promptTokenCount":400,"candidatesTokenCount":80,"thoughtsTokenCount":20,"totalTokenCount":500},"functionCalls":[{"name":"run_shell_command","args":{"command":"cargo test"}}]}]}"#,
         )
         .expect("fixture should write");
         let session = GeminiAdapter
@@ -174,6 +182,9 @@ mod tests {
             .expect("session should exist");
         assert_eq!(session.source, SessionSource::Gemini);
         assert_eq!(session.events.len(), 3);
+        assert_eq!(session.usage.model.as_deref(), Some("gemini-2.5-pro"));
+        assert_eq!(session.usage.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(session.usage.total_tokens, Some(500));
         assert!(session.events.iter().any(|event| {
             event
                 .payload
@@ -189,7 +200,7 @@ mod tests {
         let path = fixture_path("json");
         fs::write(
             &path,
-            r#"{"composerId":"cursor-1","workspace":"/repo","messages":[{"role":"user","createdAt":"2026-07-15T00:00:00Z","text":"Fix bug"},{"role":"assistant","createdAt":"2026-07-15T00:00:01Z","text":"Fixed","toolCalls":[{"name":"terminal","arguments":{"command":"pnpm test"}}]}]}"#,
+            r#"{"composerId":"cursor-1","workspace":"/repo","modelId":"claude-4-sonnet","reasoningEffort":"low","messages":[{"role":"user","createdAt":"2026-07-15T00:00:00Z","text":"Fix bug"},{"role":"assistant","createdAt":"2026-07-15T00:00:01Z","text":"Fixed","tokenUsage":{"inputTokens":300,"cachedInputTokens":100,"outputTokens":50,"totalTokens":450},"toolCalls":[{"name":"terminal","arguments":{"command":"pnpm test"}}]}]}"#,
         )
         .expect("fixture should write");
         let session = CursorAdapter
@@ -198,6 +209,9 @@ mod tests {
             .expect("session should exist");
         assert_eq!(session.source, SessionSource::Cursor);
         assert_eq!(session.events[0].source, EventSource::User);
+        assert_eq!(session.usage.model.as_deref(), Some("claude-4-sonnet"));
+        assert_eq!(session.usage.reasoning_effort.as_deref(), Some("low"));
+        assert_eq!(session.usage.total_tokens, Some(450));
         assert!(session.events.iter().any(|event| {
             event
                 .payload

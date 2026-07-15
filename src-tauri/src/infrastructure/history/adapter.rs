@@ -10,7 +10,7 @@ use crate::domain::{
     error::AppError,
     event::{EventKind, EventLevel, EventSource},
     history::{ImportedEvent, ImportedSession},
-    session::SessionSource,
+    session::{SessionSource, SessionUsage},
 };
 
 pub trait AgentHistoryAdapter: Send + Sync {
@@ -82,6 +82,112 @@ pub fn compact_text(value: impl AsRef<str>, limit: usize) -> String {
         .collect::<String>();
     text.push('…');
     text
+}
+
+pub fn json_u64(value: Option<&Value>) -> Option<u64> {
+    value.and_then(|value| {
+        value
+            .as_u64()
+            .or_else(|| value.as_i64().and_then(|number| u64::try_from(number).ok()))
+    })
+}
+
+pub fn add_optional_u64(total: &mut Option<u64>, value: Option<u64>) {
+    if let Some(value) = value {
+        *total = Some(total.unwrap_or_default().saturating_add(value));
+    }
+}
+
+pub fn complete_total_tokens(usage: &mut SessionUsage) {
+    if usage.total_tokens.is_some() {
+        return;
+    }
+    usage.total_tokens = [
+        usage.input_tokens,
+        usage.cached_input_tokens,
+        usage.output_tokens,
+        usage.reasoning_output_tokens,
+    ]
+    .into_iter()
+    .flatten()
+    .reduce(u64::saturating_add);
+}
+
+pub fn nonempty_string(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+pub fn update_session_identity(usage: &mut SessionUsage, value: &Value) {
+    usage.model = nonempty_string(
+        value
+            .get("model")
+            .or_else(|| value.get("modelId"))
+            .or_else(|| value.get("modelName")),
+    )
+    .or_else(|| usage.model.take());
+    usage.reasoning_effort = nonempty_string(
+        value
+            .get("reasoningEffort")
+            .or_else(|| value.get("reasoning_effort"))
+            .or_else(|| value.get("thinkingLevel")),
+    )
+    .or_else(|| usage.reasoning_effort.take());
+}
+
+pub fn add_generic_token_usage(usage: &mut SessionUsage, value: &Value) {
+    let Some(value) = value
+        .get("usageMetadata")
+        .or_else(|| value.get("tokenUsage"))
+        .or_else(|| value.get("usage"))
+    else {
+        return;
+    };
+    add_optional_u64(
+        &mut usage.input_tokens,
+        json_u64(
+            value
+                .get("promptTokenCount")
+                .or_else(|| value.get("inputTokens"))
+                .or_else(|| value.get("promptTokens")),
+        ),
+    );
+    add_optional_u64(
+        &mut usage.cached_input_tokens,
+        json_u64(
+            value
+                .get("cachedContentTokenCount")
+                .or_else(|| value.get("cachedInputTokens")),
+        ),
+    );
+    add_optional_u64(
+        &mut usage.output_tokens,
+        json_u64(
+            value
+                .get("candidatesTokenCount")
+                .or_else(|| value.get("outputTokens"))
+                .or_else(|| value.get("completionTokens")),
+        ),
+    );
+    add_optional_u64(
+        &mut usage.reasoning_output_tokens,
+        json_u64(
+            value
+                .get("thoughtsTokenCount")
+                .or_else(|| value.get("reasoningTokens")),
+        ),
+    );
+    add_optional_u64(
+        &mut usage.total_tokens,
+        json_u64(
+            value
+                .get("totalTokenCount")
+                .or_else(|| value.get("totalTokens")),
+        ),
+    );
 }
 
 pub fn generic_tool_events(

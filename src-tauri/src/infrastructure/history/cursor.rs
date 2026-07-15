@@ -16,12 +16,13 @@ use crate::domain::{
     error::AppError,
     event::{EventKind, EventLevel, EventSource},
     history::{ImportedEvent, ImportedSession},
-    session::SessionSource,
+    session::{SessionSource, SessionUsage},
 };
 
 use super::adapter::{
-    AgentHistoryAdapter, compact_text, extract_text, file_timestamp, generic_tool_events,
-    parse_timestamp, path_external_id,
+    AgentHistoryAdapter, add_generic_token_usage, compact_text, complete_total_tokens,
+    extract_text, file_timestamp, generic_tool_events, parse_timestamp, path_external_id,
+    update_session_identity,
 };
 
 pub struct CursorAdapter;
@@ -62,12 +63,16 @@ impl CursorAdapter {
             .or_else(|| root.get("bubbles"))
             .and_then(Value::as_array)?;
         let mut events = Vec::new();
+        let mut usage = SessionUsage::default();
+        update_session_identity(&mut usage, root);
         for message in messages {
             let role = message
                 .get("role")
                 .or_else(|| message.get("type"))
                 .and_then(Value::as_str)
                 .unwrap_or("assistant");
+            update_session_identity(&mut usage, message);
+            add_generic_token_usage(&mut usage, message);
             let Some(text) = message
                 .get("content")
                 .or_else(|| message.get("text"))
@@ -112,11 +117,13 @@ impl CursorAdapter {
                 || format!("Cursor {external_id}"),
                 |event| compact_text(&event.summary, 80),
             );
+        complete_total_tokens(&mut usage);
         Some(ImportedSession {
             source: SessionSource::Cursor,
             external_id,
             name,
             workspace,
+            usage,
             source_path: path.to_path_buf(),
             started_at: first_event.timestamp,
             updated_at: events.last().map_or(fallback, |event| event.timestamp),
@@ -302,6 +309,7 @@ impl AgentHistoryAdapter for CursorAdapter {
             external_id,
             name,
             workspace: None,
+            usage: SessionUsage::default(),
             source_path: path.to_path_buf(),
             started_at: first_event.timestamp,
             updated_at: fallback,

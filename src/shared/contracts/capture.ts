@@ -32,6 +32,13 @@ export const CaptureSessionSchema = z.object({
   externalId: z.string().nullable(),
   sourcePath: z.string().nullable(),
   workspace: z.string().nullable(),
+  model: z.string().nullable(),
+  reasoningEffort: z.string().nullable(),
+  inputTokens: z.number().int().nonnegative().nullable(),
+  cachedInputTokens: z.number().int().nonnegative().nullable(),
+  outputTokens: z.number().int().nonnegative().nullable(),
+  reasoningOutputTokens: z.number().int().nonnegative().nullable(),
+  totalTokens: z.number().int().nonnegative().nullable(),
   updatedAt: z.iso.datetime({ offset: true }),
 });
 export type CaptureSession = z.infer<typeof CaptureSessionSchema>;

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useCaptureSessions } from "../../features/capture-session/model/useCaptureSessions";
 import { useSessionEvents } from "../../features/capture-session/model/useSessionEvents";
 import { useLocalHistory } from "../../features/local-history/model/useLocalHistory";
+import { SessionUsageSummary } from "../../entities/session-usage/ui/SessionUsageSummary";
 import type {
   CaptureSession,
   SessionSource,
@@ -137,6 +138,7 @@ export function DashboardPage() {
                     <span>·</span>
                     <span>{session.lastSequence} 个事件</span>
                   </div>
+                  <SessionUsageSummary compact session={session} />
                   {session.workspace ? (
                     <div className="session-workspace" title={session.workspace}>
                       {session.workspace}
@@ -161,6 +163,7 @@ export function DashboardPage() {
                   ) : null}
                 </div>
                 {selected?.workspace ? <p>{selected.workspace}</p> : null}
+                {selected ? <SessionUsageSummary session={selected} /> : null}
               </div>
             </div>
             {selected ? (

@@ -110,6 +110,13 @@ pub struct CaptureSessionDto {
     pub external_id: Option<String>,
     pub source_path: Option<String>,
     pub workspace: Option<String>,
+    pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub input_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub reasoning_output_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
     pub updated_at: String,
 }
 
@@ -126,6 +133,13 @@ impl From<CaptureSession> for CaptureSessionDto {
             external_id: value.external_id,
             source_path: value.source_path,
             workspace: value.workspace,
+            model: value.usage.model,
+            reasoning_effort: value.usage.reasoning_effort,
+            input_tokens: value.usage.input_tokens,
+            cached_input_tokens: value.usage.cached_input_tokens,
+            output_tokens: value.usage.output_tokens,
+            reasoning_output_tokens: value.usage.reasoning_output_tokens,
+            total_tokens: value.usage.total_tokens,
             updated_at: value.updated_at.to_rfc3339(),
         }
     }

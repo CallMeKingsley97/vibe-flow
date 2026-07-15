@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use super::{
     event::{EventKind, EventLevel, EventSource},
-    session::SessionSource,
+    session::{SessionSource, SessionUsage},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,6 +24,7 @@ pub struct ImportedSession {
     pub external_id: String,
     pub name: String,
     pub workspace: Option<String>,
+    pub usage: SessionUsage,
     pub source_path: PathBuf,
     pub started_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

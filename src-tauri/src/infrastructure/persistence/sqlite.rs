@@ -19,7 +19,7 @@ use crate::{
         event::{AgentEvent, EventKind, EventLevel, EventSource},
         governance::{AgentDataSettings, CleanupPreview, CleanupResult, StorageStats},
         history::ImportedSession,
-        session::{CaptureSession, SessionSource, SessionStatus},
+        session::{CaptureSession, SessionSource, SessionStatus, SessionUsage},
     },
 };
 
@@ -39,6 +39,13 @@ struct SessionRow {
     external_id: Option<String>,
     source_path: Option<String>,
     workspace: Option<String>,
+    model: Option<String>,
+    reasoning_effort: Option<String>,
+    input_tokens: Option<i64>,
+    cached_input_tokens: Option<i64>,
+    output_tokens: Option<i64>,
+    reasoning_output_tokens: Option<i64>,
+    total_tokens: Option<i64>,
     updated_at: String,
 }
 
@@ -158,6 +165,10 @@ fn nonnegative_u64(value: i64) -> Result<u64, AppError> {
     u64::try_from(value).map_err(|error| AppError::Storage(error.to_string()))
 }
 
+fn optional_nonnegative_u64(value: Option<i64>) -> Result<Option<u64>, AppError> {
+    value.map(nonnegative_u64).transpose()
+}
+
 impl TryFrom<SessionRow> for CaptureSession {
     type Error = AppError;
 
@@ -173,6 +184,15 @@ impl TryFrom<SessionRow> for CaptureSession {
             external_id: row.external_id,
             source_path: row.source_path,
             workspace: row.workspace,
+            usage: SessionUsage {
+                model: row.model,
+                reasoning_effort: row.reasoning_effort,
+                input_tokens: optional_nonnegative_u64(row.input_tokens)?,
+                cached_input_tokens: optional_nonnegative_u64(row.cached_input_tokens)?,
+                output_tokens: optional_nonnegative_u64(row.output_tokens)?,
+                reasoning_output_tokens: optional_nonnegative_u64(row.reasoning_output_tokens)?,
+                total_tokens: optional_nonnegative_u64(row.total_tokens)?,
+            },
             updated_at: parse_time(&row.updated_at)?,
         })
     }
@@ -206,7 +226,9 @@ impl CaptureRepository for SqliteRepository {
     ) -> Result<Vec<CaptureSession>, AppError> {
         let rows = sqlx::query_as::<_, SessionRow>(
             "SELECT id, name, status, started_at, ended_at, last_sequence,
-                    source, external_id, source_path, workspace, updated_at
+                    source, external_id, source_path, workspace, model, reasoning_effort,
+                    input_tokens, cached_input_tokens, output_tokens,
+                    reasoning_output_tokens, total_tokens, updated_at
              FROM capture_sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?",
         )
         .bind(i64::from(limit))
@@ -252,12 +274,21 @@ impl HistoryRepository for SqliteRepository {
         sqlx::query(
             "INSERT INTO capture_sessions
              (id, name, status, started_at, ended_at, last_sequence,
-              source, external_id, source_path, workspace, updated_at)
-             VALUES (?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?)
+              source, external_id, source_path, workspace, model, reasoning_effort,
+              input_tokens, cached_input_tokens, output_tokens,
+              reasoning_output_tokens, total_tokens, updated_at)
+             VALUES (?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET name = excluded.name,
                started_at = excluded.started_at, ended_at = excluded.ended_at,
                last_sequence = excluded.last_sequence, source_path = excluded.source_path,
-               workspace = excluded.workspace, updated_at = excluded.updated_at",
+               workspace = excluded.workspace, model = excluded.model,
+               reasoning_effort = excluded.reasoning_effort,
+               input_tokens = excluded.input_tokens,
+               cached_input_tokens = excluded.cached_input_tokens,
+               output_tokens = excluded.output_tokens,
+               reasoning_output_tokens = excluded.reasoning_output_tokens,
+               total_tokens = excluded.total_tokens,
+               updated_at = excluded.updated_at",
         )
         .bind(id.to_string())
         .bind(&session.name)
@@ -268,6 +299,38 @@ impl HistoryRepository for SqliteRepository {
         .bind(&session.external_id)
         .bind(session.source_path.display().to_string())
         .bind(&session.workspace)
+        .bind(&session.usage.model)
+        .bind(&session.usage.reasoning_effort)
+        .bind(
+            session
+                .usage
+                .input_tokens
+                .and_then(|value| i64::try_from(value).ok()),
+        )
+        .bind(
+            session
+                .usage
+                .cached_input_tokens
+                .and_then(|value| i64::try_from(value).ok()),
+        )
+        .bind(
+            session
+                .usage
+                .output_tokens
+                .and_then(|value| i64::try_from(value).ok()),
+        )
+        .bind(
+            session
+                .usage
+                .reasoning_output_tokens
+                .and_then(|value| i64::try_from(value).ok()),
+        )
+        .bind(
+            session
+                .usage
+                .total_tokens
+                .and_then(|value| i64::try_from(value).ok()),
+        )
         .bind(session.updated_at.to_rfc3339())
         .execute(&mut *transaction)
         .await?;
@@ -416,7 +479,7 @@ mod tests {
             event::{EventKind, EventLevel, EventSource},
             governance::AgentDataSettings,
             history::{ImportedEvent, ImportedSession},
-            session::SessionSource,
+            session::{SessionSource, SessionUsage},
         },
     };
 
@@ -509,6 +572,14 @@ mod tests {
                 external_id: "restart-test".into(),
                 name: "Restart test".into(),
                 workspace: None,
+                usage: SessionUsage {
+                    model: Some("gpt-5".into()),
+                    reasoning_effort: Some("high".into()),
+                    input_tokens: Some(1_200),
+                    output_tokens: Some(300),
+                    total_tokens: Some(1_500),
+                    ..SessionUsage::default()
+                },
                 source_path: "/tmp/restart.jsonl".into(),
                 started_at: timestamp,
                 updated_at: timestamp,
@@ -522,11 +593,12 @@ mod tests {
             .list_sessions(10, 0)
             .await
             .expect("restore");
-        assert!(
-            restored
-                .iter()
-                .any(|session| session.id == id && session.name == "Restart test")
-        );
+        assert!(restored.iter().any(|session| {
+            session.id == id
+                && session.name == "Restart test"
+                && session.usage.model.as_deref() == Some("gpt-5")
+                && session.usage.total_tokens == Some(1_500)
+        }));
         for suffix in ["", "-shm", "-wal"] {
             let _ = fs::remove_file(format!("{}{suffix}", path.display()));
         }
@@ -541,6 +613,7 @@ mod tests {
             external_id: "external-1".into(),
             name: "Imported session".into(),
             workspace: Some("/repo".into()),
+            usage: SessionUsage::default(),
             source_path: "/tmp/session.jsonl".into(),
             started_at: timestamp,
             updated_at: timestamp,
@@ -593,6 +666,7 @@ mod tests {
             external_id: external_id.into(),
             name: external_id.into(),
             workspace: None,
+            usage: SessionUsage::default(),
             source_path: format!("/tmp/{external_id}.jsonl").into(),
             started_at: updated_at,
             updated_at,

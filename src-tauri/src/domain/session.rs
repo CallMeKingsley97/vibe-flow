@@ -18,6 +18,17 @@ pub enum SessionSource {
     Cursor,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionUsage {
+    pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub input_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub reasoning_output_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
+}
+
 impl fmt::Display for SessionSource {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
@@ -78,5 +89,6 @@ pub struct CaptureSession {
     pub external_id: Option<String>,
     pub source_path: Option<String>,
     pub workspace: Option<String>,
+    pub usage: SessionUsage,
     pub updated_at: DateTime<Utc>,
 }

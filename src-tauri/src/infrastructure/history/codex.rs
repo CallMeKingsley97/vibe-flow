@@ -11,17 +11,46 @@ use crate::domain::{
     error::AppError,
     event::{EventKind, EventLevel, EventSource},
     history::{ImportedEvent, ImportedSession},
-    session::SessionSource,
+    session::{SessionSource, SessionUsage},
 };
 
 use super::adapter::{
-    AgentHistoryAdapter, compact_text, extract_text, file_timestamp, parse_timestamp,
-    path_external_id,
+    AgentHistoryAdapter, compact_text, extract_text, file_timestamp, json_u64, nonempty_string,
+    parse_timestamp, path_external_id,
 };
 
 pub struct CodexAdapter;
 
 impl CodexAdapter {
+    fn update_usage(record_type: &str, payload: &Value, usage: &mut SessionUsage) -> bool {
+        if record_type == "turn_context" {
+            usage.model = nonempty_string(payload.get("model")).or_else(|| usage.model.take());
+            usage.reasoning_effort = nonempty_string(payload.get("effort"))
+                .or_else(|| {
+                    payload
+                        .get("collaboration_mode")
+                        .and_then(|value| value.get("settings"))
+                        .and_then(|value| nonempty_string(value.get("reasoning_effort")))
+                })
+                .or_else(|| usage.reasoning_effort.take());
+            return true;
+        }
+        if payload.get("type").and_then(Value::as_str) != Some("token_count") {
+            return false;
+        }
+        if let Some(total) = payload
+            .get("info")
+            .and_then(|value| value.get("total_token_usage"))
+        {
+            usage.input_tokens = json_u64(total.get("input_tokens"));
+            usage.cached_input_tokens = json_u64(total.get("cached_input_tokens"));
+            usage.output_tokens = json_u64(total.get("output_tokens"));
+            usage.reasoning_output_tokens = json_u64(total.get("reasoning_output_tokens"));
+            usage.total_tokens = json_u64(total.get("total_tokens"));
+        }
+        true
+    }
+
     fn tool_metadata(payload: &Value, item_type: &str, name: &str) -> Value {
         let input = payload
             .get("input")
@@ -281,6 +310,7 @@ impl AgentHistoryAdapter for CodexAdapter {
         let mut started_at = fallback;
         let mut events = Vec::new();
         let mut fallback_messages = Vec::new();
+        let mut usage = SessionUsage::default();
 
         for line in BufReader::new(file).lines() {
             let line = line.map_err(|error| AppError::Internal(error.to_string()))?;
@@ -306,11 +336,17 @@ impl AgentHistoryAdapter for CodexAdapter {
                     }
                 }
                 Some("event_msg") => {
-                    if let Some(event) = record
-                        .get("payload")
-                        .and_then(|payload| Self::event_from_message(payload, timestamp))
-                    {
-                        events.push(event);
+                    if let Some(payload) = record.get("payload") {
+                        if !Self::update_usage("event_msg", payload, &mut usage)
+                            && let Some(event) = Self::event_from_message(payload, timestamp)
+                        {
+                            events.push(event);
+                        }
+                    }
+                }
+                Some("turn_context") => {
+                    if let Some(payload) = record.get("payload") {
+                        Self::update_usage("turn_context", payload, &mut usage);
                     }
                 }
                 Some("response_item") => {
@@ -360,6 +396,7 @@ impl AgentHistoryAdapter for CodexAdapter {
             external_id,
             name,
             workspace,
+            usage,
             source_path: path.to_path_buf(),
             started_at,
             updated_at,

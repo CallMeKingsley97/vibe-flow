@@ -11,12 +11,12 @@ use crate::domain::{
     error::AppError,
     event::{EventKind, EventLevel, EventSource},
     history::{ImportedEvent, ImportedSession},
-    session::SessionSource,
+    session::{SessionSource, SessionUsage},
 };
 
 use super::adapter::{
-    AgentHistoryAdapter, compact_text, extract_text, file_timestamp, parse_timestamp,
-    path_external_id,
+    AgentHistoryAdapter, add_optional_u64, compact_text, complete_total_tokens, extract_text,
+    file_timestamp, json_u64, nonempty_string, parse_timestamp, path_external_id,
 };
 
 pub struct ClaudeAdapter;
@@ -193,6 +193,7 @@ impl AgentHistoryAdapter for ClaudeAdapter {
         let mut external_id = path_external_id(path);
         let mut workspace = None;
         let mut events = Vec::new();
+        let mut usage = SessionUsage::default();
 
         for line in BufReader::new(file).lines() {
             let line = line.map_err(|error| AppError::Internal(error.to_string()))?;
@@ -215,6 +216,28 @@ impl AgentHistoryAdapter for ClaudeAdapter {
             let Some(message) = record.get("message") else {
                 continue;
             };
+            usage.model = nonempty_string(message.get("model")).or(usage.model);
+            usage.reasoning_effort = nonempty_string(message.get("reasoning_effort"))
+                .or_else(|| nonempty_string(record.get("reasoningEffort")))
+                .or(usage.reasoning_effort);
+            if let Some(message_usage) = message.get("usage") {
+                add_optional_u64(
+                    &mut usage.input_tokens,
+                    json_u64(message_usage.get("input_tokens")),
+                );
+                add_optional_u64(
+                    &mut usage.cached_input_tokens,
+                    json_u64(message_usage.get("cache_read_input_tokens")),
+                );
+                add_optional_u64(
+                    &mut usage.cached_input_tokens,
+                    json_u64(message_usage.get("cache_creation_input_tokens")),
+                );
+                add_optional_u64(
+                    &mut usage.output_tokens,
+                    json_u64(message_usage.get("output_tokens")),
+                );
+            }
             let role = message
                 .get("role")
                 .and_then(Value::as_str)
@@ -237,12 +260,14 @@ impl AgentHistoryAdapter for ClaudeAdapter {
                 || format!("Claude {external_id}"),
                 |event| compact_text(&event.summary, 80),
             );
+        complete_total_tokens(&mut usage);
 
         Ok(Some(ImportedSession {
             source: SessionSource::Claude,
             external_id,
             name,
             workspace,
+            usage,
             source_path: path.to_path_buf(),
             started_at: first_event.timestamp,
             updated_at: events.last().map_or(fallback, |event| event.timestamp),

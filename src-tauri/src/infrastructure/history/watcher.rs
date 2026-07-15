@@ -113,8 +113,9 @@ mod tests {
         let _watcher = HistoryWatcher::start(service).expect("watcher should start");
         sleep(Duration::from_millis(100)).await;
 
+        let session_path = sessions_dir.join("watch-test.jsonl");
         fs::write(
-            sessions_dir.join("watch-test.jsonl"),
+            &session_path,
             concat!(
                 "{\"type\":\"session_meta\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"payload\":{\"id\":\"watched-session\",\"cwd\":\"/repo\"}}\n",
                 "{\"type\":\"event_msg\",\"timestamp\":\"2026-07-15T00:00:01Z\",\"payload\":{\"type\":\"user_message\",\"message\":\"Watched prompt\"}}\n"
@@ -139,6 +140,35 @@ mod tests {
         })
         .await
         .expect("watcher should import the new file");
+
+        fs::write(
+            &session_path,
+            concat!(
+                "{\"type\":\"session_meta\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"payload\":{\"id\":\"watched-session\",\"cwd\":\"/repo\"}}\n",
+                "{\"type\":\"turn_context\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"payload\":{\"model\":\"gpt-5\",\"effort\":\"high\"}}\n",
+                "{\"type\":\"event_msg\",\"timestamp\":\"2026-07-15T00:00:01Z\",\"payload\":{\"type\":\"user_message\",\"message\":\"Watched prompt\"}}\n",
+                "{\"type\":\"event_msg\",\"timestamp\":\"2026-07-15T00:00:02Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":900,\"cached_input_tokens\":400,\"output_tokens\":100,\"reasoning_output_tokens\":50,\"total_tokens\":1000}}}}\n"
+            ),
+        )
+        .expect("updated session fixture should write");
+
+        timeout(Duration::from_secs(5), async {
+            loop {
+                let sessions = query_service
+                    .list_sessions(10, 0)
+                    .await
+                    .expect("sessions should refresh");
+                if sessions.iter().any(|session| {
+                    session.usage.model.as_deref() == Some("gpt-5")
+                        && session.usage.total_tokens == Some(1_000)
+                }) {
+                    break;
+                }
+                sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("watcher should refresh model and token usage");
 
         let _ = fs::remove_dir_all(home);
     }

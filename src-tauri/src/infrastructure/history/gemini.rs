@@ -10,12 +10,13 @@ use crate::domain::{
     error::AppError,
     event::{EventKind, EventLevel, EventSource},
     history::{ImportedEvent, ImportedSession},
-    session::SessionSource,
+    session::{SessionSource, SessionUsage},
 };
 
 use super::adapter::{
-    AgentHistoryAdapter, compact_text, extract_text, file_timestamp, generic_tool_events,
-    parse_timestamp, path_external_id,
+    AgentHistoryAdapter, add_generic_token_usage, compact_text, complete_total_tokens,
+    extract_text, file_timestamp, generic_tool_events, parse_timestamp, path_external_id,
+    update_session_identity,
 };
 
 pub struct GeminiAdapter;
@@ -66,6 +67,8 @@ impl AgentHistoryAdapter for GeminiAdapter {
             return Ok(None);
         };
         let mut events = Vec::new();
+        let mut usage = SessionUsage::default();
+        update_session_identity(&mut usage, &root);
         for message in messages {
             let role = message
                 .get("role")
@@ -78,6 +81,8 @@ impl AgentHistoryAdapter for GeminiAdapter {
                     .or_else(|| message.get("createdAt")),
                 fallback,
             );
+            update_session_identity(&mut usage, message);
+            add_generic_token_usage(&mut usage, message);
             let text = message
                 .get("content")
                 .or_else(|| message.get("text"))
@@ -118,12 +123,14 @@ impl AgentHistoryAdapter for GeminiAdapter {
                 || format!("Gemini {external_id}"),
                 |event| compact_text(&event.summary, 80),
             );
+        complete_total_tokens(&mut usage);
 
         Ok(Some(ImportedSession {
             source: SessionSource::Gemini,
             external_id,
             name,
             workspace,
+            usage,
             source_path: path.to_path_buf(),
             started_at: first_event.timestamp,
             updated_at: events.last().map_or(fallback, |event| event.timestamp),

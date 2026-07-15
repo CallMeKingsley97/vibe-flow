@@ -841,6 +841,65 @@ button:disabled {
   white-space: nowrap;
 }
 
+.session-usage-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.session-usage-summary > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  color: #93a2b2;
+  border: 1px solid #2a394a;
+  border-radius: 6px;
+  background: #111a24;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9px;
+}
+
+.session-usage-summary i {
+  color: #5e7185;
+  font-style: normal;
+}
+
+.session-usage-summary b {
+  overflow: hidden;
+  color: #a9cfc5;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-usage-summary .session-model {
+  max-width: 260px;
+}
+
+.session-usage-summary.compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.session-usage-summary.compact > span {
+  padding: 3px 5px;
+  border-color: #223143;
+  background: #0e1721;
+}
+
+.session-usage-summary.compact .session-model {
+  max-width: none;
+}
+
+.session-usage-summary.compact .session-model b {
+  min-width: 0;
+}
+
 .detail-title-row {
   display: flex;
   align-items: center;
@@ -2051,6 +2110,20 @@ button:disabled {
 :root[data-theme="light"] .theme-options small,
 :root[data-theme="light"] .health {
   color: #6b7e90;
+}
+
+:root[data-theme="light"] .session-usage-summary > span {
+  color: #657889;
+  border-color: #d2dee5;
+  background: #f0f5f7;
+}
+
+:root[data-theme="light"] .session-usage-summary i {
+  color: #788b9b;
+}
+
+:root[data-theme="light"] .session-usage-summary b {
+  color: #2c665a;
 }
 
 :root[data-theme="light"] .number-stepper,
