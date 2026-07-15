@@ -1,0 +1,40 @@
+[package]
+name = "vibe-flow"
+version = "0.1.0"
+description = "AI Coding Agent observability desktop application"
+authors = ["Vibe Flow Contributors"]
+edition = "2024"
+rust-version = "1.85"
+
+[lib]
+name = "vibe_flow_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+notify = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "uuid", "migrate"] }
+tauri = { version = "2.11", features = [] }
+tauri-plugin-updater = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
+walkdir = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
