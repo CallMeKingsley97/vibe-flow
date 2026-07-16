@@ -132,7 +132,7 @@ mod tests {
             &path,
             concat!(
                 "{\"type\":\"user\",\"sessionId\":\"claude-1\",\"cwd\":\"/repo\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"Explain this\"}}\n",
-                "{\"type\":\"assistant\",\"sessionId\":\"claude-1\",\"timestamp\":\"2026-07-15T00:00:01Z\",\"reasoningEffort\":\"medium\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-1\",\"usage\":{\"input_tokens\":200,\"cache_read_input_tokens\":500,\"output_tokens\":100},\"content\":[{\"type\":\"text\",\"text\":\"Answer\"},{\"type\":\"tool_use\",\"name\":\"Read\",\"id\":\"tool-1\"},{\"type\":\"tool_use\",\"name\":\"Bash\",\"id\":\"tool-2\",\"input\":{\"command\":\"cargo test\"}}]}}\n"
+                "{\"type\":\"assistant\",\"sessionId\":\"claude-1\",\"timestamp\":\"2026-07-15T00:00:01Z\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-1\",\"usage\":{\"input_tokens\":200,\"cache_read_input_tokens\":500,\"output_tokens\":100},\"content\":[{\"type\":\"thinking\",\"thinking\":\"Internal reasoning\"},{\"type\":\"text\",\"text\":\"Answer\"},{\"type\":\"tool_use\",\"name\":\"Read\",\"id\":\"tool-1\"},{\"type\":\"tool_use\",\"name\":\"Bash\",\"id\":\"tool-2\",\"input\":{\"command\":\"cargo test\"}}]}}\n"
             ),
         )
         .expect("fixture should write");
@@ -143,7 +143,7 @@ mod tests {
         assert_eq!(session.source, SessionSource::Claude);
         assert_eq!(session.name, "Explain this");
         assert_eq!(session.usage.model.as_deref(), Some("claude-opus-4-1"));
-        assert_eq!(session.usage.reasoning_effort.as_deref(), Some("medium"));
+        assert_eq!(session.usage.reasoning_effort.as_deref(), Some("enabled"));
         assert_eq!(session.usage.total_tokens, Some(800));
         assert!(
             session

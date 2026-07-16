@@ -8,6 +8,8 @@ describe("会话模型用量格式化", () => {
     expect(formatTokenCount(999)).toBe("999");
     expect(formatTokenCount(1_946)).toBe("1.9K");
     expect(formatTokenCount(1_250_000)).toBe("1.3M");
+    expect(formatReasoningEffort(null)).toBe("未记录");
+    expect(formatReasoningEffort("enabled")).toBe("已启用");
     expect(formatReasoningEffort("high")).toBe("高");
     expect(formatReasoningEffort("custom")).toBe("custom");
   });

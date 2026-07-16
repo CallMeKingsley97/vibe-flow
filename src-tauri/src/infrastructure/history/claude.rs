@@ -22,6 +22,21 @@ use super::adapter::{
 pub struct ClaudeAdapter;
 
 impl ClaudeAdapter {
+    fn has_thinking_content(message: &Value) -> bool {
+        message
+            .get("content")
+            .and_then(Value::as_array)
+            .is_some_and(|blocks| {
+                blocks.iter().any(|block| {
+                    block.get("type").and_then(Value::as_str) == Some("thinking")
+                        || block
+                            .get("thinking")
+                            .and_then(Value::as_str)
+                            .is_some_and(|value| !value.trim().is_empty())
+                })
+            })
+    }
+
     fn tool_metadata(block: &Value, name: &str) -> Value {
         let lower = name.to_ascii_lowercase();
         let skill_name = (lower == "skill")
@@ -220,6 +235,9 @@ impl AgentHistoryAdapter for ClaudeAdapter {
             usage.reasoning_effort = nonempty_string(message.get("reasoning_effort"))
                 .or_else(|| nonempty_string(record.get("reasoningEffort")))
                 .or(usage.reasoning_effort);
+            if usage.reasoning_effort.is_none() && Self::has_thinking_content(message) {
+                usage.reasoning_effort = Some("enabled".into());
+            }
             if let Some(message_usage) = message.get("usage") {
                 add_optional_u64(
                     &mut usage.input_tokens,

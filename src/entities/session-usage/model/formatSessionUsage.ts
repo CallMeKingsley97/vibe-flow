@@ -8,7 +8,7 @@ export function formatTokenCount(value: number | null): string {
 }
 
 export function formatReasoningEffort(value: string | null): string {
-  if (!value) return "未知";
+  if (!value) return "未记录";
   const labels: Record<string, string> = {
     minimal: "最低",
     low: "低",
@@ -17,6 +17,7 @@ export function formatReasoningEffort(value: string | null): string {
     xhigh: "极高",
     max: "最高",
     none: "关闭",
+    enabled: "已启用",
   };
   return labels[value.toLowerCase()] ?? value;
 }

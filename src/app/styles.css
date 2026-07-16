@@ -432,6 +432,17 @@ summary:focus-visible {
   line-height: 1.5;
 }
 
+.update-release-notes {
+  margin-top: 7px;
+  color: #769487;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.update-release-notes.is-collapsible:not(.is-expanded) .collapsible-text-content::after {
+  background: linear-gradient(transparent, #10231d);
+}
+
 .update-error {
   color: #eaa4a4;
   border-color: #5b3439;
@@ -1202,6 +1213,51 @@ button:disabled {
 .timeline-summary {
   color: #d5dee9;
   line-height: 1.55;
+}
+
+.collapsible-text-content {
+  position: relative;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.collapsible-text.is-collapsible:not(.is-expanded) .collapsible-text-content::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 30px;
+  background: linear-gradient(transparent, rgba(15, 21, 31, 0.98));
+  content: "";
+  pointer-events: none;
+}
+
+.collapsible-text > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 4px 7px;
+  color: #71bfae;
+  border: 1px solid #29483f;
+  border-radius: 6px;
+  background: #10211d;
+  font-size: 9px;
+}
+
+.collapsible-text > button:hover {
+  color: #91e4d0;
+  border-color: #39705f;
+  background: #142b25;
+}
+
+.collapsible-text > button span {
+  color: #537e74;
+}
+
+.timeline-summary.collapsible-text {
+  max-width: min(880px, 100%);
 }
 
 .toolbar {
@@ -2059,6 +2115,39 @@ button:disabled {
 :root[data-theme="light"] .risk-operations > p,
 :root[data-theme="light"] .command-audit > p {
   color: #687b8c;
+}
+
+:root[data-theme="light"]
+  .collapsible-text.is-collapsible:not(.is-expanded)
+  .collapsible-text-content::after {
+  background: linear-gradient(transparent, rgba(251, 253, 254, 0.98));
+}
+
+:root[data-theme="light"] .collapsible-text > button {
+  color: #337a69;
+  border-color: #b9d3cc;
+  background: #e9f4f1;
+}
+
+:root[data-theme="light"] .collapsible-text > button:hover {
+  color: #185f50;
+  border-color: #85b8aa;
+  background: #dff0eb;
+}
+
+:root[data-theme="light"] .update-available {
+  border-color: #b9d8ce;
+  background: #eaf6f2;
+}
+
+:root[data-theme="light"] .update-release-notes {
+  color: #55766c;
+}
+
+:root[data-theme="light"]
+  .update-release-notes.is-collapsible:not(.is-expanded)
+  .collapsible-text-content::after {
+  background: linear-gradient(transparent, #eaf6f2);
 }
 
 :root[data-theme="light"] .settings-control,

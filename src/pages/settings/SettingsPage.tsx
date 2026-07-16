@@ -5,6 +5,7 @@ import { useDataGovernance } from "../../features/data-retention/model/useDataGo
 import { checkForUpdate, installAvailableUpdate } from "../../shared/api/capture";
 import type { UpdateCheck } from "../../shared/contracts/capture";
 import { formatError } from "../../shared/lib/error";
+import { CollapsibleText } from "../../shared/ui/CollapsibleText";
 import { RetentionSettingsCard } from "../../widgets/data-retention/RetentionSettingsCard";
 import { ThemeSettingsCard } from "../../widgets/theme-settings/ThemeSettingsCard";
 
@@ -230,7 +231,14 @@ export function SettingsPage() {
           {update?.available ? (
             <div className="update-available" role="status">
               <strong>发现新版本 {update.version}</strong>
-              {update.body ? <p>{update.body}</p> : null}
+              {update.body ? (
+                <CollapsibleText
+                  className="update-release-notes"
+                  collapseAt={260}
+                  maxHeight={76}
+                  text={update.body}
+                />
+              ) : null}
             </div>
           ) : null}
           {updateError ? <div className="update-error">{updateError}</div> : null}

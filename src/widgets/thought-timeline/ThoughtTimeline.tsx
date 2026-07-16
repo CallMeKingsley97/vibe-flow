@@ -2,6 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AgentEvent } from "../../shared/contracts/capture";
+import { CollapsibleText } from "../../shared/ui/CollapsibleText";
 import { ExecutionFlow } from "../execution-flow/ExecutionFlow";
 
 interface ThoughtTimelineProps {
@@ -29,6 +30,7 @@ export function ThoughtTimeline({
   const [level, setLevel] = useState("all");
   const [following, setFollowing] = useState(true);
   const [targetEventId, setTargetEventId] = useState<string | null>(focusEventId ?? null);
+  const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(() => new Set());
 
   const filteredEvents = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -43,9 +45,10 @@ export function ThoughtTimeline({
   const virtualizer = useVirtualizer({
     count: filteredEvents.length,
     getScrollElement: () => scrollElement.current,
-    estimateSize: () => 80,
+    estimateSize: () => 116,
     getItemKey: (index) => filteredEvents[index]?.id ?? index,
     overscan: 12,
+    useAnimationFrameWithResizeObserver: true,
   });
 
   useEffect(() => {
@@ -180,7 +183,22 @@ export function ThoughtTimeline({
                 </div>
                 <div>
                   <div className="timeline-kind">{event.kind.replaceAll("_", " ")}</div>
-                  <p className="timeline-summary">{event.summary}</p>
+                  <CollapsibleText
+                    className="timeline-summary"
+                    collapseAt={180}
+                    expanded={expandedEventIds.has(event.id)}
+                    maxHeight={68}
+                    onExpandedChange={(expanded) => {
+                      setFollowing(false);
+                      setExpandedEventIds((current) => {
+                        const next = new Set(current);
+                        if (expanded) next.add(event.id);
+                        else next.delete(event.id);
+                        return next;
+                      });
+                    }}
+                    text={event.summary}
+                  />
                 </div>
               </article>
             );
