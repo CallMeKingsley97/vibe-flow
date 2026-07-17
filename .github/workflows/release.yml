@@ -172,10 +172,12 @@ jobs:
       - name: Verify draft release has installer assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.validate.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release view "$TAG" --json isDraft,assets,url > /tmp/release.json
+          # 本 job 不 checkout 代码，必须显式指定仓库，避免 gh 依赖本地 .git
+          gh release view "$TAG" --repo "$GH_REPO" --json isDraft,assets,url > /tmp/release.json
           cat /tmp/release.json
           IS_DRAFT="$(jq -r .isDraft /tmp/release.json)"
           COUNT="$(jq '.assets | length' /tmp/release.json)"
@@ -189,4 +191,6 @@ jobs:
             jq '.assets[].name' /tmp/release.json || true
             exit 1
           fi
+          echo "Draft release asset names:"
+          jq -r '.assets[].name' /tmp/release.json
           echo "Draft release OK with ${COUNT} assets: ${URL}"
