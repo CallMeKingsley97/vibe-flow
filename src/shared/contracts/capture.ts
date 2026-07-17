@@ -21,9 +21,17 @@ export const UpdateCheckSchema = z.object({
 });
 export type UpdateCheck = z.infer<typeof UpdateCheckSchema>;
 
+const SessionNameSchema = z
+  .string()
+  .min(1)
+  // 与 Rust `char` 的计数语义保持一致，避免 emoji 被 UTF-16 代理对重复计数。
+  .refine((value) => Array.from(value).length <= 80, {
+    message: "会话名称不能超过 80 个 Unicode 字符",
+  });
+
 export const CaptureSessionSchema = z.object({
   id: z.uuid(),
-  name: z.string().min(1).max(80),
+  name: SessionNameSchema,
   status: SessionStatusSchema,
   startedAt: z.iso.datetime({ offset: true }),
   endedAt: z.iso.datetime({ offset: true }).nullable(),

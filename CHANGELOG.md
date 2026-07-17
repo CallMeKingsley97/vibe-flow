@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 - 2026-07-17
+
+- 修复按来源列出会话时 Gemini/Cursor 会话被隐藏的问题；
+- 会话名称长度校验改为按 Unicode 字符计数，避免 emoji 被重复计数；
+- 开发模式补充 devCsp，允许 Vite HMR 的 localhost WebSocket 连接；
+- 修复 release 校验 job 在无本地 git 检出时 gh 无法定位仓库的问题。
+
 ## 0.1.1 - 2026-07-17
 
 - 修复 Windows 发布版启动时伴随打开 CMD 控制台窗口；
