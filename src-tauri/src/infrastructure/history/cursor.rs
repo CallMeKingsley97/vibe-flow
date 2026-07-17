@@ -232,6 +232,14 @@ impl AgentHistoryAdapter for CursorAdapter {
         ]
     }
 
+    fn watch_roots(&self, home: &Path) -> Vec<PathBuf> {
+        // 不全量监听 Cursor User 目录，只盯项目与 globalStorage
+        vec![
+            home.join(".cursor/projects"),
+            Self::application_support(home).join("globalStorage"),
+        ]
+    }
+
     fn matches(&self, path: &Path) -> bool {
         if path.file_name().and_then(|value| value.to_str()) == Some("state.vscdb") {
             return path.to_string_lossy().contains("Cursor");

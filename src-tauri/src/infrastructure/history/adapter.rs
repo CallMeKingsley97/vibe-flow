@@ -16,6 +16,10 @@ use crate::domain::{
 pub trait AgentHistoryAdapter: Send + Sync {
     fn source(&self) -> SessionSource;
     fn roots(&self, home: &Path) -> Vec<PathBuf>;
+    /// 文件监听根目录；默认同 roots，可收窄以降低噪音
+    fn watch_roots(&self, home: &Path) -> Vec<PathBuf> {
+        self.roots(home)
+    }
     fn matches(&self, path: &Path) -> bool;
     fn discover(&self, home: &Path) -> Vec<PathBuf>;
     fn parse(&self, path: &Path) -> Result<Option<ImportedSession>, AppError>;

@@ -71,6 +71,20 @@ impl HistoryWatcher {
                     paths.insert(path);
                 }
                 for path in paths {
+                    // 跳过 sqlite 旁路与临时文件，避免无关键变更触发同步
+                    if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
+                        if name.ends_with("-wal")
+                            || name.ends_with("-shm")
+                            || name.ends_with("-journal")
+                            || name.ends_with(".tmp")
+                            || name.ends_with(".temp")
+                        {
+                            continue;
+                        }
+                    }
+                    if !service.is_relevant_watch_path(&path) {
+                        continue;
+                    }
                     if path.is_file() {
                         let Some(next) = fingerprint(&path) else {
                             continue;

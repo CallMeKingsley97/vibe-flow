@@ -8,7 +8,7 @@ import {
 import type { HistoryChange, SourceScanStatus } from "../../../shared/contracts/capture";
 import { formatError } from "../../../shared/lib/error";
 
-const HISTORY_CHANGE_DEBOUNCE_MS = 400;
+const HISTORY_CHANGE_DEBOUNCE_MS = 800;
 
 export function useLocalHistory(
   onSessionsChanged: () => Promise<void>,
@@ -31,6 +31,7 @@ export function useLocalHistory(
     try {
       setStatuses(await scanLocalHistory());
       await onSessionsChanged();
+      // 手动扫描后刷新当前详情
       setRevision((value) => value + 1);
       setError(null);
     } catch (reason) {
@@ -49,8 +50,7 @@ export function useLocalHistory(
       pendingSessionIdsRef.current = new Set();
       void onSessionsChanged();
       const selected = selectedSessionIdRef.current;
-      // 仅当当前选中会话变更，或尚无选中会话时刷新事件明细
-      if (!selected || pending.has(selected) || pending.size === 0) {
+      if (!selected || pending.has(selected)) {
         setRevision((value) => value + 1);
       }
     }
@@ -72,7 +72,21 @@ export function useLocalHistory(
     void getSourceScanStatuses().then((value) => {
       if (active) setStatuses(value);
     });
-    void scan();
+    // 启动只扫描入库，不额外 bump revision；会话列表 refresh 已足够
+    void (async () => {
+      setScanning(true);
+      try {
+        const next = await scanLocalHistory();
+        if (!active) return;
+        setStatuses(next);
+        await onSessionsChanged();
+        setError(null);
+      } catch (reason) {
+        if (active) setError(formatError(reason));
+      } finally {
+        if (active) setScanning(false);
+      }
+    })();
 
     return () => {
       active = false;
@@ -80,7 +94,7 @@ export function useLocalHistory(
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [onSessionsChanged, scan]);
+  }, [onSessionsChanged]);
 
   return { statuses, scanning, revision, error, scan };
 }

@@ -13,7 +13,7 @@ use sqlx::{
 use uuid::Uuid;
 
 use crate::{
-    application::ports::{CaptureRepository, GovernanceRepository, HistoryRepository},
+    application::ports::{CaptureRepository, GovernanceRepository, HistoryRepository, ImportOutcome},
     domain::{
         error::AppError,
         event::{AgentEvent, EventKind, EventLevel, EventSource},
@@ -265,12 +265,62 @@ impl CaptureRepository for SqliteRepository {
 
 #[async_trait]
 impl HistoryRepository for SqliteRepository {
-    async fn import_session(&self, session: ImportedSession) -> Result<Uuid, AppError> {
+    async fn import_session(&self, session: ImportedSession) -> Result<ImportOutcome, AppError> {
         let identity = format!("{}:{}", session.source, session.external_id);
         let id = Uuid::new_v5(&Uuid::NAMESPACE_URL, identity.as_bytes());
-        let mut transaction = self.pool.begin().await?;
         let event_count = i64::try_from(session.events.len())
             .map_err(|error| AppError::Storage(error.to_string()))?;
+        // 以 sequence/name/model/tokens + 首尾事件摘要判断是否变更；
+        // 不依赖 updated_at（Cursor DB 的 fallback 时间戳会随文件 mtime 抖动）
+        let existing = sqlx::query_as::<_, (i64, String, Option<String>, Option<i64>)>(
+            "SELECT last_sequence, name, model, total_tokens FROM capture_sessions WHERE id = ?",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some((last_sequence, existing_name, model, total_tokens)) = existing {
+            let same_tokens = total_tokens
+                == session
+                    .usage
+                    .total_tokens
+                    .and_then(|value| i64::try_from(value).ok());
+            let same_model = model.as_deref() == session.usage.model.as_deref();
+            let same_meta = last_sequence == event_count
+                && existing_name == session.name
+                && same_tokens
+                && same_model;
+            if same_meta {
+                let existing_edges = sqlx::query_as::<_, (i64, String)>(
+                    "SELECT sequence, summary FROM agent_events
+                     WHERE session_id = ?
+                     AND sequence IN (1, ?)
+                     ORDER BY sequence",
+                )
+                .bind(id.to_string())
+                .bind(event_count)
+                .fetch_all(&self.pool)
+                .await?;
+                let incoming_edges: Vec<(i64, String)> = [
+                    session.events.first().map(|event| (1_i64, event.summary.clone())),
+                    session
+                        .events
+                        .last()
+                        .map(|event| (event_count, event.summary.clone())),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<std::collections::BTreeMap<_, _>>()
+                .into_iter()
+                .collect();
+                if existing_edges == incoming_edges {
+                    return Ok(ImportOutcome {
+                        session_id: id,
+                        changed: false,
+                    });
+                }
+            }
+        }
+        let mut transaction = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO capture_sessions
              (id, name, status, started_at, ended_at, last_sequence,
@@ -363,7 +413,10 @@ impl HistoryRepository for SqliteRepository {
             .await?;
         }
         transaction.commit().await?;
-        Ok(id)
+        Ok(ImportOutcome {
+            session_id: id,
+            changed: true,
+        })
     }
 }
 
@@ -586,7 +639,7 @@ mod tests {
                 events: vec![],
             })
             .await
-            .expect("persist");
+            .expect("persist").session_id;
         let restored = SqliteRepository::connect(&path)
             .await
             .expect("reopen")
@@ -629,13 +682,15 @@ mod tests {
         let id = repository
             .import_session(make("first"))
             .await
-            .expect("first");
+            .expect("first")
+            .session_id;
         assert_eq!(
             id,
             repository
                 .import_session(make("updated"))
                 .await
                 .expect("second")
+                .session_id
         );
         let events = repository.list_events(id, 0, 10).await.expect("events");
         assert_eq!(events[0].summary, "updated");
@@ -679,11 +734,11 @@ mod tests {
                 now - chrono::Duration::days(90),
             ))
             .await
-            .expect("old persist");
+            .expect("old persist").session_id;
         let recent_id = repository
             .import_session(make(SessionSource::Claude, "recent-session", now))
             .await
-            .expect("recent persist");
+            .expect("recent persist").session_id;
         let cutoff = Utc::now() - chrono::Duration::days(30);
         assert_eq!(
             repository

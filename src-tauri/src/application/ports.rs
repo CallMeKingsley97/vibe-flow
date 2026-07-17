@@ -27,9 +27,15 @@ pub trait HistoryPublisher: Send + Sync {
     fn publish_imported(&self, source: crate::domain::session::SessionSource, session_id: Uuid);
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ImportOutcome {
+    pub session_id: Uuid,
+    pub changed: bool,
+}
+
 #[async_trait]
 pub trait HistoryRepository: Send + Sync {
-    async fn import_session(&self, session: ImportedSession) -> Result<Uuid, AppError>;
+    async fn import_session(&self, session: ImportedSession) -> Result<ImportOutcome, AppError>;
 }
 
 #[async_trait]

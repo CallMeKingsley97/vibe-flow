@@ -50,8 +50,18 @@ impl HistoryService {
     pub fn watch_roots(&self) -> Vec<PathBuf> {
         self.adapters
             .iter()
-            .flat_map(|adapter| adapter.roots(&self.home))
+            .flat_map(|adapter| adapter.watch_roots(&self.home))
             .collect()
+    }
+
+    pub fn is_relevant_watch_path(&self, path: &Path) -> bool {
+        if path.is_dir() {
+            return self
+                .watch_roots()
+                .into_iter()
+                .any(|root| path.starts_with(&root) || root.starts_with(path));
+        }
+        adapter_for_path(&self.adapters, path).is_some()
     }
 
     pub fn statuses(&self) -> Vec<SourceScanStatus> {
@@ -89,9 +99,11 @@ impl HistoryService {
                 match result {
                     Ok(session) if seen_external_ids.insert(session.external_id.clone()) => {
                         match self.repository.import_session(session).await {
-                            Ok(session_id) => {
+                            Ok(outcome) => {
                                 session_count += 1;
-                                last_session_id = Some(session_id);
+                                if outcome.changed {
+                                    last_session_id = Some(outcome.session_id);
+                                }
                             }
                             Err(error) => {
                                 first_error.get_or_insert_with(|| error.to_string());
@@ -126,7 +138,7 @@ impl HistoryService {
         if path.is_dir() {
             let mut last_imported = None;
             for adapter in &self.adapters {
-                let roots = adapter.roots(&self.home);
+                let roots = adapter.watch_roots(&self.home);
                 if !roots
                     .iter()
                     .any(|root| path.starts_with(root) || root.starts_with(path))
@@ -150,11 +162,15 @@ impl HistoryService {
                 })
                 .await
                 .map_err(|error| AppError::Internal(error.to_string()))??;
+                let mut changed_id = None;
                 for session in sessions {
-                    let session_id = self.repository.import_session(session).await?;
-                    last_imported = Some(session_id);
+                    let outcome = self.repository.import_session(session).await?;
+                    last_imported = Some(outcome.session_id);
+                    if outcome.changed {
+                        changed_id = Some(outcome.session_id);
+                    }
                 }
-                if let Some(session_id) = last_imported {
+                if let Some(session_id) = changed_id {
                     self.publisher.publish_imported(source, session_id);
                 }
             }
@@ -172,10 +188,15 @@ impl HistoryService {
             .await
             .map_err(|error| AppError::Internal(error.to_string()))??;
         let mut last_session_id = None;
+        let mut changed_id = None;
         for session in sessions {
-            last_session_id = Some(self.repository.import_session(session).await?);
+            let outcome = self.repository.import_session(session).await?;
+            last_session_id = Some(outcome.session_id);
+            if outcome.changed {
+                changed_id = Some(outcome.session_id);
+            }
         }
-        if let Some(session_id) = last_session_id {
+        if let Some(session_id) = changed_id {
             self.publisher.publish_imported(source, session_id);
         }
         Ok(last_session_id)
