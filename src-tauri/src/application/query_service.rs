@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::domain::{error::AppError, event::AgentEvent, session::CaptureSession};
+use crate::domain::{error::AppError, event::AgentEvent, session::{CaptureSession, SessionSource}};
 
 use super::ports::CaptureRepository;
 
@@ -19,9 +19,10 @@ impl QueryService {
         &self,
         limit: u32,
         offset: u32,
+        source: Option<SessionSource>,
     ) -> Result<Vec<CaptureSession>, AppError> {
         self.repository
-            .list_sessions(limit.clamp(1, 200), offset)
+            .list_sessions(limit.clamp(1, 2_000), offset, source)
             .await
     }
 

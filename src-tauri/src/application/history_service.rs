@@ -259,7 +259,7 @@ mod tests {
         );
 
         let statuses = service.scan_all().await.expect("scan");
-        let sessions = query.list_sessions(10, 0).await.expect("sessions");
+        let sessions = query.list_sessions(10, 0, None).await.expect("sessions");
         let events = query
             .list_events(sessions[0].id, 0, 100)
             .await

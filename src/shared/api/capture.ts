@@ -38,10 +38,18 @@ export function installAvailableUpdate(): Promise<boolean> {
   return invoke<boolean>("install_available_update");
 }
 
-export async function listCaptureSessions(limit = 100, offset = 0): Promise<CaptureSession[]> {
-  return z
-    .array(CaptureSessionSchema)
-    .parse(await invoke<unknown>("list_capture_sessions", { limit, offset }));
+export async function listCaptureSessions(
+  limit = 500,
+  offset = 0,
+  source?: CaptureSession["source"],
+): Promise<CaptureSession[]> {
+  return z.array(CaptureSessionSchema).parse(
+    await invoke<unknown>("list_capture_sessions", {
+      limit,
+      offset,
+      source: source ?? null,
+    }),
+  );
 }
 
 export async function listAgentEvents(

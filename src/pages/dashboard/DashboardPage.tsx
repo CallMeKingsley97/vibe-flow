@@ -43,22 +43,17 @@ function SourceStatus({ status }: { status: SourceScanStatus }) {
 }
 
 export function DashboardPage() {
-  const sessionModel = useCaptureSessions();
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const sessionModel = useCaptureSessions(sourceFilter);
   const refreshSessions = sessionModel.refresh;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const localHistory = useLocalHistory(refreshSessions, selectedId);
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const eventModel = useSessionEvents(selectedId, localHistory.revision);
   const [detailView, setDetailView] = useState<"insights" | "timeline">("insights");
   const [focusEventId, setFocusEventId] = useState<string | null>(null);
 
-  const filteredSessions = useMemo(
-    () =>
-      sourceFilter === "all"
-        ? sessionModel.sessions
-        : sessionModel.sessions.filter((session) => session.source === sourceFilter),
-    [sessionModel.sessions, sourceFilter],
-  );
+  // 后端已按 source 过滤；这里直接使用返回结果
+  const filteredSessions = sessionModel.sessions;
 
   useEffect(() => {
     if (!selectedId && filteredSessions[0]) setSelectedId(filteredSessions[0].id);

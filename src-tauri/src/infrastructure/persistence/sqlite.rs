@@ -223,18 +223,36 @@ impl CaptureRepository for SqliteRepository {
         &self,
         limit: u32,
         offset: u32,
+        source: Option<SessionSource>,
     ) -> Result<Vec<CaptureSession>, AppError> {
-        let rows = sqlx::query_as::<_, SessionRow>(
-            "SELECT id, name, status, started_at, ended_at, last_sequence,
-                    source, external_id, source_path, workspace, model, reasoning_effort,
-                    input_tokens, cached_input_tokens, output_tokens,
-                    reasoning_output_tokens, total_tokens, updated_at
-             FROM capture_sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-        )
-        .bind(i64::from(limit))
-        .bind(i64::from(offset))
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = if let Some(source) = source {
+            sqlx::query_as::<_, SessionRow>(
+                "SELECT id, name, status, started_at, ended_at, last_sequence,
+                        source, external_id, source_path, workspace, model, reasoning_effort,
+                        input_tokens, cached_input_tokens, output_tokens,
+                        reasoning_output_tokens, total_tokens, updated_at
+                 FROM capture_sessions
+                 WHERE source = ?
+                 ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            )
+            .bind(source.to_string())
+            .bind(i64::from(limit))
+            .bind(i64::from(offset))
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, SessionRow>(
+                "SELECT id, name, status, started_at, ended_at, last_sequence,
+                        source, external_id, source_path, workspace, model, reasoning_effort,
+                        input_tokens, cached_input_tokens, output_tokens,
+                        reasoning_output_tokens, total_tokens, updated_at
+                 FROM capture_sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            )
+            .bind(i64::from(limit))
+            .bind(i64::from(offset))
+            .fetch_all(&self.pool)
+            .await?
+        };
         rows.into_iter().map(TryInto::try_into).collect()
     }
 
@@ -643,7 +661,7 @@ mod tests {
         let restored = SqliteRepository::connect(&path)
             .await
             .expect("reopen")
-            .list_sessions(10, 0)
+            .list_sessions(10, 0, None)
             .await
             .expect("restore");
         assert!(restored.iter().any(|session| {
@@ -655,6 +673,40 @@ mod tests {
         for suffix in ["", "-shm", "-wal"] {
             let _ = fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[tokio::test]
+    async fn filters_sessions_by_source() {
+        let repository = SqliteRepository::in_memory().await.expect("database");
+        let now = Utc::now();
+        for (source, external_id) in [
+            (SessionSource::Codex, "c1"),
+            (SessionSource::Gemini, "g1"),
+            (SessionSource::Cursor, "u1"),
+        ] {
+            repository
+                .import_session(ImportedSession {
+                    source,
+                    external_id: external_id.into(),
+                    name: external_id.into(),
+                    workspace: None,
+                    usage: SessionUsage::default(),
+                    source_path: format!("/tmp/{external_id}").into(),
+                    started_at: now,
+                    updated_at: now,
+                    events: vec![],
+                })
+                .await
+                .expect("import");
+        }
+        let gemini = repository
+            .list_sessions(10, 0, Some(SessionSource::Gemini))
+            .await
+            .expect("gemini");
+        assert_eq!(gemini.len(), 1);
+        assert_eq!(gemini[0].source, SessionSource::Gemini);
+        let all = repository.list_sessions(10, 0, None).await.expect("all");
+        assert_eq!(all.len(), 3);
     }
 
     #[tokio::test]
@@ -758,7 +810,7 @@ mod tests {
         );
         assert!(
             repository
-                .list_sessions(10, 0)
+                .list_sessions(10, 0, None)
                 .await
                 .expect("remaining sessions")
                 .iter()

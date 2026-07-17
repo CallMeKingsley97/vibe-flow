@@ -7,13 +7,17 @@ use crate::domain::{
     event::AgentEvent,
     governance::{AgentDataSettings, CleanupPreview, CleanupResult, StorageStats},
     history::ImportedSession,
-    session::CaptureSession,
+    session::{CaptureSession, SessionSource},
 };
 
 #[async_trait]
 pub trait CaptureRepository: Send + Sync {
-    async fn list_sessions(&self, limit: u32, offset: u32)
-    -> Result<Vec<CaptureSession>, AppError>;
+    async fn list_sessions(
+        &self,
+        limit: u32,
+        offset: u32,
+        source: Option<SessionSource>,
+    ) -> Result<Vec<CaptureSession>, AppError>;
     async fn list_events(
         &self,
         session_id: Uuid,

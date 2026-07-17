@@ -2,7 +2,7 @@ use tauri::{AppHandle, State, ipc::Channel};
 use tauri_plugin_updater::UpdaterExt;
 use uuid::Uuid;
 
-use crate::{app_state::AppState, domain::error::AppError};
+use crate::{app_state::AppState, domain::{error::AppError, session::SessionSource}};
 
 use super::dto::{
     AgentEventDto, ApiErrorDto, CaptureSessionDto, CleanupPreviewDto, CleanupResultDto,
@@ -76,11 +76,17 @@ pub async fn install_available_update(app: AppHandle) -> Result<bool, ApiErrorDt
 pub async fn list_capture_sessions(
     limit: Option<u32>,
     offset: Option<u32>,
+    source: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<CaptureSessionDto>, ApiErrorDto> {
+    let source = source
+        .as_deref()
+        .map(str::parse::<SessionSource>)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
     state
         .query_service
-        .list_sessions(limit.unwrap_or(100), offset.unwrap_or(0))
+        .list_sessions(limit.unwrap_or(500), offset.unwrap_or(0), source)
         .await
         .map(|sessions| sessions.into_iter().map(Into::into).collect())
         .map_err(Into::into)
