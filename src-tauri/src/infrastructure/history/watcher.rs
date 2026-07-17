@@ -1,4 +1,9 @@
-use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use notify::{Config, PollWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
@@ -7,6 +12,29 @@ use crate::{application::history_service::HistoryService, domain::error::AppErro
 
 pub struct HistoryWatcher {
     _watcher: PollWatcher,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FileFingerprint {
+    modified_millis: u128,
+    len: u64,
+}
+
+fn fingerprint(path: &std::path::Path) -> Option<FileFingerprint> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let modified_millis = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis();
+    Some(FileFingerprint {
+        modified_millis,
+        len: metadata.len(),
+    })
 }
 
 impl HistoryWatcher {
@@ -34,6 +62,7 @@ impl HistoryWatcher {
                 .map_err(|error| AppError::Internal(error.to_string()))?;
         }
 
+        let fingerprints = Arc::new(Mutex::new(HashMap::<PathBuf, FileFingerprint>::new()));
         let task = async move {
             while let Some(first_path) = receiver.recv().await {
                 let mut paths = HashSet::from([first_path]);
@@ -42,6 +71,26 @@ impl HistoryWatcher {
                     paths.insert(path);
                 }
                 for path in paths {
+                    if path.is_file() {
+                        let Some(next) = fingerprint(&path) else {
+                            continue;
+                        };
+                        let changed = {
+                            let mut cache = fingerprints
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                            match cache.get(&path) {
+                                Some(previous) if *previous == next => false,
+                                _ => {
+                                    cache.insert(path.clone(), next);
+                                    true
+                                }
+                            }
+                        };
+                        if !changed {
+                            continue;
+                        }
+                    }
                     if let Err(error) = service.sync_path(&path).await {
                         tracing::warn!(%error, path = %path.display(), "history sync failed");
                     }

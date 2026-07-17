@@ -45,8 +45,8 @@ function SourceStatus({ status }: { status: SourceScanStatus }) {
 export function DashboardPage() {
   const sessionModel = useCaptureSessions();
   const refreshSessions = sessionModel.refresh;
-  const localHistory = useLocalHistory(refreshSessions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const localHistory = useLocalHistory(refreshSessions, selectedId);
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const eventModel = useSessionEvents(selectedId, localHistory.revision);
   const [detailView, setDetailView] = useState<"insights" | "timeline">("insights");

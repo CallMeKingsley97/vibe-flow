@@ -10,15 +10,27 @@ export function useSessionEvents(sessionId: string | null, revision = 0) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
+  const loadedSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     const currentGeneration = ++generation.current;
-    setEvents([]);
+    const sessionChanged = loadedSessionRef.current !== sessionId;
     setError(null);
 
-    if (!sessionId) return;
+    if (!sessionId) {
+      loadedSessionRef.current = null;
+      setEvents([]);
+      setLoading(false);
+      return;
+    }
 
-    setLoading(true);
+    // 仅在切换会话时清空；同会话 revision 更新时保留旧内容，避免闪屏
+    if (sessionChanged) {
+      loadedSessionRef.current = sessionId;
+      setEvents([]);
+      setLoading(true);
+    }
+
     void (async () => {
       let afterSequence = 0;
       let history: AgentEvent[] = [];
