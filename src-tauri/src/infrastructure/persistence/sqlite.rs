@@ -739,6 +739,46 @@ impl AnalyticsRepository for SqliteRepository {
             });
         }
 
+        // Per-model/provider aggregation from capture_sessions.model.
+        let provider_sql = format!(
+            "SELECT COALESCE(NULLIF(TRIM(s.model), ''), '未知模型'),
+                    COUNT(DISTINCT s.id),
+                    COUNT(e.id),
+                    SUM(CASE WHEN e.level = 'error' OR json_extract(e.payload, '$.failed') = 1 THEN 1 ELSE 0 END),
+                    COALESCE(SUM(s.total_tokens), 0)
+             FROM capture_sessions s
+             LEFT JOIN agent_events e ON e.session_id = s.id
+             WHERE s.updated_at BETWEEN ? AND ?{source_clause}{workspace_clause}
+             GROUP BY COALESCE(NULLIF(TRIM(s.model), ''), '未知模型')
+             ORDER BY COUNT(DISTINCT s.id) DESC, COALESCE(SUM(s.total_tokens), 0) DESC
+             LIMIT ?"
+        );
+        let mut provider_query = sqlx::query_as::<
+            _,
+            (
+                String,
+                i64,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+            ),
+        >(&provider_sql);
+        for value in &base_binds {
+            provider_query = provider_query.bind(value);
+        }
+        provider_query = provider_query.bind(i64::from(query.ranking_limit.max(query.project_limit)));
+        let provider_rows = provider_query.fetch_all(&self.pool).await?;
+        let mut by_provider = Vec::with_capacity(provider_rows.len());
+        for (provider, sessions, events, errors, tokens) in provider_rows {
+            by_provider.push(crate::domain::analytics::ProviderInsight {
+                provider,
+                sessions: nonnegative_u64(sessions)?,
+                events: nonnegative_u64(events.unwrap_or(0).max(0))?,
+                errors: nonnegative_u64(errors.unwrap_or(0).max(0))?,
+                total_tokens: nonnegative_u64(tokens.unwrap_or(0).max(0))?,
+            });
+        }
+
         // Per-workspace aggregation. Sessions with NULL workspace are grouped as "未分类".
         let project_sql = format!(
             "SELECT COALESCE(NULLIF(TRIM(s.workspace), ''), '未分类'),
@@ -849,6 +889,7 @@ impl AnalyticsRepository for SqliteRepository {
             to: query.to,
             totals,
             by_source,
+            by_provider,
             by_project,
             timeline,
             top_tools,
@@ -1230,54 +1271,64 @@ mod tests {
         assert_eq!(insights.totals.sessions, 0);
         assert_eq!(insights.totals.events, 0);
         assert!(insights.by_source.is_empty());
+        assert!(insights.by_provider.is_empty());
         assert!(insights.timeline.is_empty());
         assert!(insights.top_tools.is_empty());
     }
 
     #[tokio::test]
+    #[allow(clippy::too_many_lines)]
     async fn global_insights_aggregates_across_sources() {
         let repository = SqliteRepository::in_memory().await.expect("database");
         let now = Utc::now();
         let day_ago = now - chrono::Duration::days(1);
 
         repository
-            .import_session(session(
-                SessionSource::Codex,
-                "codex-1",
-                Some("/tmp/a"),
-                day_ago,
-                day_ago,
-                vec![
-                    tool_event(day_ago, "Bash", "command", None, None),
-                    ImportedEvent {
-                        timestamp: day_ago,
-                        source: EventSource::User,
-                        kind: EventKind::Message,
-                        level: EventLevel::Info,
-                        summary: "hello".into(),
-                        payload: json!({}),
-                    },
-                ],
-                Some(100),
-            ))
+            .import_session({
+                let mut s = session(
+                    SessionSource::Codex,
+                    "codex-1",
+                    Some("/tmp/a"),
+                    day_ago,
+                    day_ago,
+                    vec![
+                        tool_event(day_ago, "Bash", "command", None, None),
+                        ImportedEvent {
+                            timestamp: day_ago,
+                            source: EventSource::User,
+                            kind: EventKind::Message,
+                            level: EventLevel::Info,
+                            summary: "hello".into(),
+                            payload: json!({}),
+                        },
+                    ],
+                    Some(100),
+                );
+                s.usage.model = Some("gpt-5".into());
+                s
+            })
             .await
             .expect("import codex");
         repository
-            .import_session(session(
-                SessionSource::Claude,
-                "claude-1",
-                Some("/tmp/b"),
-                day_ago,
-                day_ago,
-                vec![tool_event(
+            .import_session({
+                let mut s = session(
+                    SessionSource::Claude,
+                    "claude-1",
+                    Some("/tmp/b"),
                     day_ago,
-                    "Read",
-                    "file",
-                    Some("code-review"),
-                    Some("chrome"),
-                )],
-                Some(200),
-            ))
+                    day_ago,
+                    vec![tool_event(
+                        day_ago,
+                        "Read",
+                        "file",
+                        Some("code-review"),
+                        Some("chrome"),
+                    )],
+                    Some(200),
+                );
+                s.usage.model = Some("claude-opus-4".into());
+                s
+            })
             .await
             .expect("import claude");
         repository
@@ -1318,6 +1369,24 @@ mod tests {
                 .by_project
                 .iter()
                 .any(|project| project.workspace == "/tmp/a" && project.sessions == 2)
+        );
+        assert!(
+            insights
+                .by_provider
+                .iter()
+                .any(|item| item.provider == "gpt-5" && item.sessions == 1)
+        );
+        assert!(
+            insights
+                .by_provider
+                .iter()
+                .any(|item| item.provider == "claude-opus-4" && item.sessions == 1)
+        );
+        assert!(
+            insights
+                .by_provider
+                .iter()
+                .any(|item| item.provider == "未知模型")
         );
     }
 

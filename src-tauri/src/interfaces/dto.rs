@@ -343,6 +343,28 @@ impl From<ProjectInsight> for ProjectInsightDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProviderInsightDto {
+    pub provider: String,
+    pub sessions: u64,
+    pub events: u64,
+    pub errors: u64,
+    pub total_tokens: u64,
+}
+
+impl From<crate::domain::analytics::ProviderInsight> for ProviderInsightDto {
+    fn from(value: crate::domain::analytics::ProviderInsight) -> Self {
+        Self {
+            provider: value.provider,
+            sessions: value.sessions,
+            events: value.events,
+            errors: value.errors,
+            total_tokens: value.total_tokens,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimeBucketPointDto {
     pub bucket: String,
     pub sessions: u64,
@@ -384,6 +406,7 @@ pub struct GlobalInsightsDto {
     pub to: String,
     pub totals: TotalMetricsDto,
     pub by_source: Vec<SourceInsightDto>,
+    pub by_provider: Vec<ProviderInsightDto>,
     pub by_project: Vec<ProjectInsightDto>,
     pub timeline: Vec<TimeBucketPointDto>,
     pub top_tools: Vec<RankedItemDto>,
@@ -398,6 +421,7 @@ impl From<GlobalInsights> for GlobalInsightsDto {
             to: value.to.to_rfc3339(),
             totals: value.totals.into(),
             by_source: value.by_source.into_iter().map(Into::into).collect(),
+            by_provider: value.by_provider.into_iter().map(Into::into).collect(),
             by_project: value.by_project.into_iter().map(Into::into).collect(),
             timeline: value.timeline.into_iter().map(Into::into).collect(),
             top_tools: value.top_tools.into_iter().map(Into::into).collect(),

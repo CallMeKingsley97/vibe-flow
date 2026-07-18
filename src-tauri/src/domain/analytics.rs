@@ -65,6 +65,16 @@ pub struct ProjectInsight {
     pub last_active_at: DateTime<Utc>,
 }
 
+/// Aggregated by the model/provider string stored on sessions (e.g. claude-opus, gpt-5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderInsight {
+    pub provider: String,
+    pub sessions: u64,
+    pub events: u64,
+    pub errors: u64,
+    pub total_tokens: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TimeBucketPoint {
     pub bucket: String,
@@ -85,6 +95,7 @@ pub struct GlobalInsights {
     pub to: DateTime<Utc>,
     pub totals: TotalMetrics,
     pub by_source: Vec<SourceInsight>,
+    pub by_provider: Vec<ProviderInsight>,
     pub by_project: Vec<ProjectInsight>,
     pub timeline: Vec<TimeBucketPoint>,
     pub top_tools: Vec<RankedItem>,

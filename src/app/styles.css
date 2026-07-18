@@ -2532,6 +2532,148 @@ button:disabled {
   background: #fff9e8;
 }
 
+/* Global light-theme fixes for remaining hardcoded dark colors */
+:root[data-theme="light"] .brand h1 {
+  color: #172331;
+}
+
+:root[data-theme="light"] .health {
+  color: #6b7e90;
+}
+
+:root[data-theme="light"] .settings-page .page-heading h2,
+:root[data-theme="light"] .settings-card h3,
+:root[data-theme="light"] .settings-card-header h3,
+:root[data-theme="light"] .panel h2,
+:root[data-theme="light"] .panel h3 {
+  color: #172331;
+}
+
+:root[data-theme="light"] .settings-card-header p,
+:root[data-theme="light"] .page-heading p {
+  color: #687b8c;
+}
+
+:root[data-theme="light"] .danger-button {
+  color: #fff8f8;
+  border-color: #c45a63;
+  background: #b13b45;
+}
+
+:root[data-theme="light"] .primary-button {
+  color: #ffffff;
+  border-color: #1f8f7c;
+  background: #26a892;
+}
+
+:root[data-theme="light"] .workspace-filter-chip {
+  color: #3d5b54;
+  border-color: rgba(38, 168, 146, 0.28);
+  background: rgba(38, 168, 146, 0.1);
+}
+
+:root[data-theme="light"] .workspace-filter-chip button {
+  color: #24554a;
+  border-color: #b7d8cf;
+  background: #e8f4f0;
+}
+
+:root[data-theme="light"] .insights-hero,
+:root[data-theme="light"] .insights-controls,
+:root[data-theme="light"] .insights-metric,
+:root[data-theme="light"] .insights-card,
+:root[data-theme="light"] .insights-loading {
+  border-color: #d5dfe6;
+  background: rgba(251, 253, 254, 0.94);
+  box-shadow: 0 12px 30px rgba(38, 61, 78, 0.08);
+}
+
+:root[data-theme="light"] .insights-hero-copy h2,
+:root[data-theme="light"] .insights-card h3,
+:root[data-theme="light"] .insights-hero-summary strong,
+:root[data-theme="light"] .insights-metric > strong,
+:root[data-theme="light"] .insights-compare-label,
+:root[data-theme="light"] .insights-project-title,
+:root[data-theme="light"] .insights-ranking h4 {
+  color: #172331;
+}
+
+:root[data-theme="light"] .insights-hero-copy p,
+:root[data-theme="light"] .insights-hero-summary small,
+:root[data-theme="light"] .insights-metric > span,
+:root[data-theme="light"] .insights-metric > em,
+:root[data-theme="light"] .insights-card > header small,
+:root[data-theme="light"] .insights-compare-meta,
+:root[data-theme="light"] .insights-project-meta,
+:root[data-theme="light"] .insights-empty,
+:root[data-theme="light"] .insights-ranking > p {
+  color: #687b8c;
+}
+
+:root[data-theme="light"] .insights-segment {
+  border-color: #d5dfe6;
+  background: #eef3f6;
+}
+
+:root[data-theme="light"] .insights-segment button {
+  color: #5d7081;
+}
+
+:root[data-theme="light"] .insights-segment button.active {
+  color: #172331;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(38, 61, 78, 0.1);
+}
+
+:root[data-theme="light"] .insights-refresh {
+  color: #24554a;
+  border-color: #c7ddd6;
+  background: #e8f4f0;
+}
+
+:root[data-theme="light"] .insights-compare-track,
+:root[data-theme="light"] .insights-ranking .insight-rank-row > i,
+:root[data-theme="light"] .insights-trend {
+  background: #e5ecef;
+  border-color: #d5dfe6;
+}
+
+:root[data-theme="light"] .insights-project {
+  border-color: #d7e1e7;
+  background: #f5f8fa;
+}
+
+:root[data-theme="light"] .insights-project:hover {
+  border-color: rgba(38, 168, 146, 0.35);
+  background: #eaf5f1;
+}
+
+:root[data-theme="light"] .insights-reset-filter {
+  color: #1f8f7c;
+  border-color: rgba(38, 168, 146, 0.35);
+  background: rgba(38, 168, 146, 0.12);
+}
+
+:root[data-theme="light"] .insights-error {
+  color: #9d343b;
+  border-color: #e9b7bb;
+  background: #fff0f1;
+}
+
+:root[data-theme="light"] .error-banner,
+:root[data-theme="light"] .error-state {
+  color: #9d343b;
+  border-color: #e9b7bb;
+  background: #fff0f1;
+}
+
+:root[data-theme="light"] .success-banner {
+  color: #1f6b57;
+  border-color: #b9d8ce;
+  background: #eaf6f2;
+}
+
+
 @media (max-width: 1050px) {
   .dashboard-grid {
     grid-template-columns: 280px minmax(0, 1fr);

@@ -12,7 +12,32 @@
         background: #090d14;
         color: #e7edf5;
       }
+
+      html[data-theme="light"],
+      html[data-theme="light"] body {
+        background: #eef3f6;
+        color: #172331;
+      }
     </style>
+    <script>
+      (function () {
+        try {
+          var key = "vibe-flow.theme";
+          var pref = localStorage.getItem(key);
+          if (pref !== "system" && pref !== "dark" && pref !== "light") pref = "system";
+          var dark =
+            pref === "dark" ||
+            (pref === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var resolved = dark ? "dark" : "light";
+          document.documentElement.dataset.theme = resolved;
+          document.documentElement.style.colorScheme = resolved;
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", resolved === "light" ? "#eef3f6" : "#090d14");
+        } catch (_) {
+          /* ignore */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

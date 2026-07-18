@@ -78,23 +78,28 @@ function SourceCompareRow({
   errors,
   tokens,
   maxSessions,
+  metaExtra,
 }: {
   label: string;
   sessions: number;
   errors: number;
   tokens: number;
   maxSessions: number;
+  metaExtra?: string;
 }) {
   const ratio = Math.max(2, Math.min(100, Math.round((sessions / (maxSessions || 1)) * 100)));
   return (
     <div className="insights-compare-row">
-      <span className="insights-compare-label">{label}</span>
+      <span className="insights-compare-label" title={label}>
+        {label}
+      </span>
       <i className="insights-compare-track">
         <b style={{ width: `${ratio}%` }} />
       </i>
       <span className="insights-compare-meta">
         <strong>{sessions}</strong>
         <em>{errors ? `${errors} 错误` : "无错误"}</em>
+        {metaExtra ? <em>{metaExtra}</em> : null}
         <em>{tokens ? `${formatCount(tokens)} tokens` : "—"}</em>
       </span>
     </div>
@@ -190,6 +195,10 @@ export function GlobalInsightsView({
 }: GlobalInsightsProps) {
   const maxSourceSessions = useMemo(
     () => Math.max(1, ...(data?.bySource.map((item) => item.sessions) ?? [1])),
+    [data],
+  );
+  const maxProviderSessions = useMemo(
+    () => Math.max(1, ...(data?.byProvider.map((item) => item.sessions) ?? [1])),
     [data],
   );
 
@@ -334,6 +343,46 @@ export function GlobalInsightsView({
             </div>
           ) : (
             <div className="insights-empty">当前范围内没有匹配的 Agent 数据。</div>
+          )}
+        </section>
+
+        <section className="insights-card">
+          <header>
+            <div>
+              <span className="eyebrow">PROVIDER COMPARE</span>
+              <h3>Provider / 模型对比</h3>
+            </div>
+            <small>按会话模型聚合 · 看错误与用量</small>
+          </header>
+          {data.byProvider.length ? (
+            <div className="insights-compare">
+              {data.byProvider.map((item) => {
+                const errorRate =
+                  item.sessions > 0 ? Math.round((item.errors / item.sessions) * 10) / 10 : 0;
+                return item.sessions ? (
+                  <SourceCompareRow
+                    key={item.provider}
+                    label={item.provider}
+                    sessions={item.sessions}
+                    errors={item.errors}
+                    tokens={item.totalTokens}
+                    maxSessions={maxProviderSessions}
+                    metaExtra={`${errorRate} 错/会话`}
+                  />
+                ) : (
+                  <SourceCompareRow
+                    key={item.provider}
+                    label={item.provider}
+                    sessions={item.sessions}
+                    errors={item.errors}
+                    tokens={item.totalTokens}
+                    maxSessions={maxProviderSessions}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="insights-empty">当前范围内没有可识别的 Provider / 模型数据。</div>
           )}
         </section>
 

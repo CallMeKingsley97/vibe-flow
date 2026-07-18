@@ -27,6 +27,7 @@ function emptyInsights(overrides: Partial<GlobalInsights> = {}): GlobalInsights 
       totalTokens: 0,
     },
     bySource: [],
+    byProvider: [],
     byProject: [],
     timeline: [],
     topTools: [],

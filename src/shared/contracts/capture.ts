@@ -148,6 +148,15 @@ export const SourceInsightSchema = z.object({
 });
 export type SourceInsight = z.infer<typeof SourceInsightSchema>;
 
+export const ProviderInsightSchema = z.object({
+  provider: z.string(),
+  sessions: z.number().int().nonnegative(),
+  events: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+});
+export type ProviderInsight = z.infer<typeof ProviderInsightSchema>;
+
 export const ProjectInsightSchema = z.object({
   workspace: z.string(),
   sessions: z.number().int().nonnegative(),
@@ -177,6 +186,7 @@ export const GlobalInsightsSchema = z.object({
   to: z.iso.datetime({ offset: true }),
   totals: TotalMetricsSchema,
   bySource: z.array(SourceInsightSchema),
+  byProvider: z.array(ProviderInsightSchema),
   byProject: z.array(ProjectInsightSchema),
   timeline: z.array(TimeBucketPointSchema),
   topTools: z.array(RankedItemSchema),
