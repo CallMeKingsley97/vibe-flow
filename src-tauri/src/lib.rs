@@ -12,8 +12,8 @@ use std::{
 
 use app_state::AppState;
 use application::{
-    governance_service::GovernanceService, history_service::HistoryService,
-    query_service::QueryService,
+    analytics_service::AnalyticsService, governance_service::GovernanceService,
+    history_service::HistoryService, query_service::QueryService,
 };
 use infrastructure::{
     history::{default_adapters, watcher::HistoryWatcher},
@@ -74,6 +74,7 @@ pub fn run() {
             let history_watcher = HistoryWatcher::start(history_service.clone())?;
             let governance_service =
                 Arc::new(GovernanceService::new(repository.clone(), diagnostics_dir));
+            let analytics_service = Arc::new(AnalyticsService::new(repository.clone()));
 
             let cleanup_service = governance_service.clone();
             tauri::async_runtime::spawn(async move {
@@ -87,6 +88,7 @@ pub fn run() {
                 history_service: history_service.clone(),
                 history_publisher,
                 governance_service,
+                analytics_service,
                 recovered_database_path: recovered_database_path
                     .map(|path| path.display().to_string()),
             });
@@ -109,6 +111,7 @@ pub fn run() {
             commands::preview_data_cleanup,
             commands::run_data_cleanup,
             commands::create_diagnostic_bundle,
+            commands::get_global_insights,
         ])
         .plugin(tauri_plugin_updater::Builder::new().build())
         .run(tauri::generate_context!())

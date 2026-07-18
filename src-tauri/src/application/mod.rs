@@ -1,3 +1,4 @@
+pub mod analytics_service;
 pub mod governance_service;
 pub mod history_service;
 pub mod ports;

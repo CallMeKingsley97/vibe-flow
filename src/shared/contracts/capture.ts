@@ -115,3 +115,82 @@ export const CleanupResultSchema = z.object({
   reclaimedDatabaseBytes: z.number().int().nonnegative(),
 });
 export type CleanupResult = z.infer<typeof CleanupResultSchema>;
+
+export const TimeBucketSchema = z.enum(["day", "week"]);
+export type TimeBucket = z.infer<typeof TimeBucketSchema>;
+
+export const InsightsRangeSchema = z.enum(["7d", "30d", "90d", "180d"]);
+export type InsightsRange = z.infer<typeof InsightsRangeSchema>;
+
+export const TotalMetricsSchema = z.object({
+  sessions: z.number().int().nonnegative(),
+  events: z.number().int().nonnegative(),
+  userMessages: z.number().int().nonnegative(),
+  agentMessages: z.number().int().nonnegative(),
+  toolCalls: z.number().int().nonnegative(),
+  commands: z.number().int().nonnegative(),
+  fileChanges: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+});
+export type TotalMetrics = z.infer<typeof TotalMetricsSchema>;
+
+export const SourceInsightSchema = z.object({
+  source: SessionSourceSchema,
+  sessions: z.number().int().nonnegative(),
+  events: z.number().int().nonnegative(),
+  toolCalls: z.number().int().nonnegative(),
+  commands: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+});
+export type SourceInsight = z.infer<typeof SourceInsightSchema>;
+
+export const ProjectInsightSchema = z.object({
+  workspace: z.string(),
+  sessions: z.number().int().nonnegative(),
+  events: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+  lastActiveAt: z.iso.datetime({ offset: true }),
+});
+export type ProjectInsight = z.infer<typeof ProjectInsightSchema>;
+
+export const TimeBucketPointSchema = z.object({
+  bucket: z.string(),
+  sessions: z.number().int().nonnegative(),
+  events: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+});
+export type TimeBucketPoint = z.infer<typeof TimeBucketPointSchema>;
+
+export const RankedItemSchema = z.object({
+  name: z.string(),
+  count: z.number().int().nonnegative(),
+});
+export type RankedItem = z.infer<typeof RankedItemSchema>;
+
+export const GlobalInsightsSchema = z.object({
+  from: z.iso.datetime({ offset: true }),
+  to: z.iso.datetime({ offset: true }),
+  totals: TotalMetricsSchema,
+  bySource: z.array(SourceInsightSchema),
+  byProject: z.array(ProjectInsightSchema),
+  timeline: z.array(TimeBucketPointSchema),
+  topTools: z.array(RankedItemSchema),
+  topSkills: z.array(RankedItemSchema),
+  topMcp: z.array(RankedItemSchema),
+});
+export type GlobalInsights = z.infer<typeof GlobalInsightsSchema>;
+
+export interface GlobalInsightsQuery {
+  source?: SessionSource;
+  workspace?: string;
+  from?: string;
+  to?: string;
+  bucket?: TimeBucket;
+  projectLimit?: number;
+  rankingLimit?: number;
+}

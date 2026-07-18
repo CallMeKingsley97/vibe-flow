@@ -2,6 +2,10 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
+    analytics::{
+        GlobalInsights, ProjectInsight, RankedItem, SourceInsight, TimeBucket, TimeBucketPoint,
+        TotalMetrics,
+    },
     error::AppError,
     event::AgentEvent,
     governance::{AgentDataSettings, CleanupPreview, CleanupResult, StorageStats},
@@ -227,6 +231,180 @@ pub struct HistoryChangeDto {
 pub struct ApiErrorDto {
     pub code: &'static str,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalInsightsQueryDto {
+    pub source: Option<String>,
+    pub workspace: Option<String>,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    pub bucket: Option<String>,
+    pub project_limit: Option<u32>,
+    pub ranking_limit: Option<u32>,
+}
+
+impl GlobalInsightsQueryDto {
+    pub fn parse_bucket(&self) -> Result<TimeBucket, AppError> {
+        match self.bucket.as_deref().unwrap_or("day") {
+            "day" => Ok(TimeBucket::Day),
+            "week" => Ok(TimeBucket::Week),
+            other => Err(AppError::Validation(format!(
+                "unknown time bucket: {other}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TotalMetricsDto {
+    pub sessions: u64,
+    pub events: u64,
+    pub user_messages: u64,
+    pub agent_messages: u64,
+    pub tool_calls: u64,
+    pub commands: u64,
+    pub file_changes: u64,
+    pub errors: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
+}
+
+impl From<TotalMetrics> for TotalMetricsDto {
+    fn from(value: TotalMetrics) -> Self {
+        Self {
+            sessions: value.sessions,
+            events: value.events,
+            user_messages: value.user_messages,
+            agent_messages: value.agent_messages,
+            tool_calls: value.tool_calls,
+            commands: value.commands,
+            file_changes: value.file_changes,
+            errors: value.errors,
+            input_tokens: value.input_tokens,
+            output_tokens: value.output_tokens,
+            total_tokens: value.total_tokens,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceInsightDto {
+    pub source: String,
+    pub sessions: u64,
+    pub events: u64,
+    pub tool_calls: u64,
+    pub commands: u64,
+    pub errors: u64,
+    pub total_tokens: u64,
+}
+
+impl From<SourceInsight> for SourceInsightDto {
+    fn from(value: SourceInsight) -> Self {
+        Self {
+            source: value.source.to_string(),
+            sessions: value.sessions,
+            events: value.events,
+            tool_calls: value.tool_calls,
+            commands: value.commands,
+            errors: value.errors,
+            total_tokens: value.total_tokens,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInsightDto {
+    pub workspace: String,
+    pub sessions: u64,
+    pub events: u64,
+    pub errors: u64,
+    pub total_tokens: u64,
+    pub last_active_at: String,
+}
+
+impl From<ProjectInsight> for ProjectInsightDto {
+    fn from(value: ProjectInsight) -> Self {
+        Self {
+            workspace: value.workspace,
+            sessions: value.sessions,
+            events: value.events,
+            errors: value.errors,
+            total_tokens: value.total_tokens,
+            last_active_at: value.last_active_at.to_rfc3339(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeBucketPointDto {
+    pub bucket: String,
+    pub sessions: u64,
+    pub events: u64,
+    pub errors: u64,
+}
+
+impl From<TimeBucketPoint> for TimeBucketPointDto {
+    fn from(value: TimeBucketPoint) -> Self {
+        Self {
+            bucket: value.bucket,
+            sessions: value.sessions,
+            events: value.events,
+            errors: value.errors,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RankedItemDto {
+    pub name: String,
+    pub count: u64,
+}
+
+impl From<RankedItem> for RankedItemDto {
+    fn from(value: RankedItem) -> Self {
+        Self {
+            name: value.name,
+            count: value.count,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalInsightsDto {
+    pub from: String,
+    pub to: String,
+    pub totals: TotalMetricsDto,
+    pub by_source: Vec<SourceInsightDto>,
+    pub by_project: Vec<ProjectInsightDto>,
+    pub timeline: Vec<TimeBucketPointDto>,
+    pub top_tools: Vec<RankedItemDto>,
+    pub top_skills: Vec<RankedItemDto>,
+    pub top_mcp: Vec<RankedItemDto>,
+}
+
+impl From<GlobalInsights> for GlobalInsightsDto {
+    fn from(value: GlobalInsights) -> Self {
+        Self {
+            from: value.from.to_rfc3339(),
+            to: value.to.to_rfc3339(),
+            totals: value.totals.into(),
+            by_source: value.by_source.into_iter().map(Into::into).collect(),
+            by_project: value.by_project.into_iter().map(Into::into).collect(),
+            timeline: value.timeline.into_iter().map(Into::into).collect(),
+            top_tools: value.top_tools.into_iter().map(Into::into).collect(),
+            top_skills: value.top_skills.into_iter().map(Into::into).collect(),
+            top_mcp: value.top_mcp.into_iter().map(Into::into).collect(),
+        }
+    }
 }
 
 impl From<AppError> for ApiErrorDto {

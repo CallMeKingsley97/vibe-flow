@@ -16,6 +16,7 @@ export function AppShell() {
           <NavLink end to="/">
             会话
           </NavLink>
+          <NavLink to="/insights">洞察</NavLink>
           <NavLink to="/settings">设置</NavLink>
         </nav>
         <div className="health" title={health.error ?? undefined}>

@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::domain::{
+    analytics::{AnalyticsQuery, GlobalInsights},
     error::AppError,
     event::AgentEvent,
     governance::{AgentDataSettings, CleanupPreview, CleanupResult, StorageStats},
@@ -40,6 +41,11 @@ pub struct ImportOutcome {
 #[async_trait]
 pub trait HistoryRepository: Send + Sync {
     async fn import_session(&self, session: ImportedSession) -> Result<ImportOutcome, AppError>;
+}
+
+#[async_trait]
+pub trait AnalyticsRepository: Send + Sync {
+    async fn global_insights(&self, query: AnalyticsQuery) -> Result<GlobalInsights, AppError>;
 }
 
 #[async_trait]

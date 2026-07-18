@@ -35,6 +35,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 - [已知限制](docs/KNOWN_LIMITATIONS.md)
 - [发布流程](docs/RELEASE.md)
 - [性能基线](docs/PERFORMANCE.md)
+- [设计语言](docs/DESIGN_LANGUAGE.md)
 - [架构](project-architecture.md)
 - [Roadmap](ROADMAP.md)
 

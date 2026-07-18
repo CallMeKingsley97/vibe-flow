@@ -69,9 +69,9 @@ interfaces -> application -> domain
 infrastructure -----------^
 ```
 
-- `domain`：Agent 会话、统一事件和数据治理规则。
-- `application`：查询事件、导入历史和清理数据。
-- `infrastructure`：Agent adapters、文件监听和 SQLite。
+- `domain`：Agent 会话、统一事件、数据治理规则与聚合洞察模型。
+- `application`：查询事件、导入历史、清理数据与跨会话聚合（`AnalyticsService`）。
+- `infrastructure`：Agent adapters、文件监听和 SQLite（含 `AnalyticsRepository` 实现）。
 - `interfaces`：Tauri commands、Channel 和 DTO。
 
 React 前端：
@@ -80,9 +80,9 @@ React 前端：
 app -> pages -> widgets -> features -> entities -> shared
 ```
 
-- `entities`：执行流程和 Agent 统计的纯计算模型。
-- `features`：会话查询、历史同步和数据保留用例。
-- `widgets`：会话列表、Agent 统计、执行流程、事件明细和设置界面。
+- `entities`：执行流程、会话级统计与全局洞察格式化的纯计算模型。
+- `features`：会话查询、历史同步、数据保留与全局洞察查询用例。
+- `widgets`：会话列表、Agent 统计、全局洞察、执行流程、事件明细和设置界面。
 - `pages`：页面布局与模块组合。
 
 ## 6. 核心数据模型
@@ -147,6 +147,17 @@ app -> pages -> widgets -> features -> entities -> shared
 1. Agent 统计提供会话级摘要。
 2. 执行流程按用户消息划分任务阶段并聚合连续工具噪音。
 3. 事件明细保留完整顺序、筛选和定位能力。
+4. 全局洞察页通过 `get_global_insights` 查询跨会话聚合结果（Agent / 项目 / 时间桶 / 排行）。
+
+### 聚合服务（M7）
+
+跨会话洞察走应用层 `AnalyticsService` + 仓储端口 `AnalyticsRepository`：
+
+1. Command 接收可选 `source / workspace / from / to / bucket / projectLimit / rankingLimit`。
+2. `AnalyticsService` 负责默认时间窗（最近 30 天）、参数 clamp（limit ∈ 1..=50）与查询组装。
+3. `SqliteRepository::global_insights` 将 totals、by_source、by_project、timeline、top tools/skills/mcp **全部下推 SQL**（`JOIN` / `GROUP BY` / `strftime` / `json_extract`），避免把事件拉进 Rust 内存再聚合。
+4. 空 workspace 在项目维度 coalesce 为「未分类」；工具排行过滤 `toolCategory = wait`。
+5. 前端 Zod 校验 IPC 载荷后，由 `useGlobalInsights` 驱动 `/insights` 视图，并在 history-change 上 debounce 刷新。
 4. 长会话按固定阶段窗口分页，并提供阶段缩略导航和风险筛选。
 
 ### 风险审查

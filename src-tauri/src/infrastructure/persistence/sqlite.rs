@@ -13,8 +13,15 @@ use sqlx::{
 use uuid::Uuid;
 
 use crate::{
-    application::ports::{CaptureRepository, GovernanceRepository, HistoryRepository, ImportOutcome},
+    application::ports::{
+        AnalyticsRepository, CaptureRepository, GovernanceRepository, HistoryRepository,
+        ImportOutcome,
+    },
     domain::{
+        analytics::{
+            AnalyticsQuery, GlobalInsights, ProjectInsight, RankedItem, SourceInsight,
+            TimeBucketPoint, TotalMetrics,
+        },
         error::AppError,
         event::{AgentEvent, EventKind, EventLevel, EventSource},
         governance::{AgentDataSettings, CleanupPreview, CleanupResult, StorageStats},
@@ -283,6 +290,7 @@ impl CaptureRepository for SqliteRepository {
 
 #[async_trait]
 impl HistoryRepository for SqliteRepository {
+    #[allow(clippy::too_many_lines)]
     async fn import_session(&self, session: ImportedSession) -> Result<ImportOutcome, AppError> {
         let identity = format!("{}:{}", session.source, session.external_id);
         let id = Uuid::new_v5(&Uuid::NAMESPACE_URL, identity.as_bytes());
@@ -535,6 +543,321 @@ impl GovernanceRepository for SqliteRepository {
     }
 }
 
+fn optional_source_condition(source: Option<SessionSource>) -> String {
+    source
+        .map(|value| format!(" AND s.source = '{value}'"))
+        .unwrap_or_default()
+}
+
+fn optional_workspace_condition(workspace: Option<&str>) -> (String, Option<String>) {
+    workspace.map_or((String::new(), None), |value| {
+        (" AND s.workspace = ?".to_string(), Some(value.to_string()))
+    })
+}
+
+async fn scalar_u64(
+    pool: &SqlitePool,
+    sql: &str,
+    binds: &[String],
+) -> Result<u64, AppError> {
+    let mut query = sqlx::query_scalar::<_, Option<i64>>(sql);
+    for value in binds {
+        query = query.bind(value);
+    }
+    let raw: Option<i64> = query.fetch_one(pool).await?;
+    let value = raw.unwrap_or(0).max(0);
+    nonnegative_u64(value)
+}
+
+async fn ranked(
+    pool: &SqlitePool,
+    sql: &str,
+    binds: &[String],
+) -> Result<Vec<RankedItem>, AppError> {
+    let mut q = sqlx::query_as::<_, (String, i64)>(sql);
+    for (index, value) in binds.iter().enumerate() {
+        // The last bind is the LIMIT (integer). Bind it explicitly to i64.
+        if index == binds.len() - 1 {
+            let numeric: i64 = value
+                .parse()
+                .map_err(|error: std::num::ParseIntError| AppError::Storage(error.to_string()))?;
+            q = q.bind(numeric);
+        } else {
+            q = q.bind(value);
+        }
+    }
+    let rows = q.fetch_all(pool).await?;
+    rows.into_iter()
+        .map(|(name, count)| {
+            Ok(RankedItem {
+                name,
+                count: nonnegative_u64(count)?,
+            })
+        })
+        .collect()
+}
+
+#[async_trait]
+impl AnalyticsRepository for SqliteRepository {
+    #[allow(clippy::too_many_lines)]
+    async fn global_insights(&self, query: AnalyticsQuery) -> Result<GlobalInsights, AppError> {
+        let from = query.from.to_rfc3339();
+        let to = query.to.to_rfc3339();
+        let source_clause = optional_source_condition(query.source);
+        let (workspace_clause, workspace_value) =
+            optional_workspace_condition(query.workspace.as_deref());
+        let base_binds = {
+            let mut binds = vec![from.clone(), to.clone()];
+            if let Some(value) = workspace_value.as_ref() {
+                binds.push(value.clone());
+            }
+            binds
+        };
+
+        let sessions = scalar_u64(
+            &self.pool,
+            &format!(
+                "SELECT COUNT(*) FROM capture_sessions s
+                 WHERE s.updated_at BETWEEN ? AND ?{source_clause}{workspace_clause}"
+            ),
+            &base_binds,
+        )
+        .await?;
+
+        // Aggregate token metrics from sessions.
+        let token_sql = format!(
+            "SELECT COALESCE(SUM(input_tokens), 0),
+                    COALESCE(SUM(output_tokens), 0),
+                    COALESCE(SUM(total_tokens), 0)
+             FROM capture_sessions s
+             WHERE s.updated_at BETWEEN ? AND ?{source_clause}{workspace_clause}"
+        );
+        let mut token_row =
+            sqlx::query_as::<_, (Option<i64>, Option<i64>, Option<i64>)>(&token_sql);
+        for value in &base_binds {
+            token_row = token_row.bind(value);
+        }
+        let (input_tokens, output_tokens, total_tokens) =
+            token_row.fetch_one(&self.pool).await?;
+
+        // Event-derived metrics via a single join.
+        let event_metrics_sql = format!(
+            "SELECT
+                COUNT(*),
+                SUM(CASE WHEN e.source = 'user' AND e.kind = 'message' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN e.source = 'agent' AND e.kind = 'message' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN e.kind = 'tool_call'
+                              AND COALESCE(json_extract(e.payload, '$.toolCategory'), '') != 'wait'
+                         THEN 1 ELSE 0 END),
+                SUM(CASE WHEN e.kind = 'command'
+                              OR (e.kind = 'tool_call' AND json_extract(e.payload, '$.toolCategory') = 'command')
+                         THEN 1 ELSE 0 END),
+                SUM(CASE WHEN e.kind = 'file_change' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN e.level = 'error' OR json_extract(e.payload, '$.failed') = 1 THEN 1 ELSE 0 END)
+             FROM capture_sessions s
+             JOIN agent_events e ON e.session_id = s.id
+             WHERE s.updated_at BETWEEN ? AND ?{source_clause}{workspace_clause}"
+        );
+        let mut event_metrics_query = sqlx::query_as::<
+            _,
+            (
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+            ),
+        >(&event_metrics_sql);
+        for value in &base_binds {
+            event_metrics_query = event_metrics_query.bind(value);
+        }
+        let (events, user_messages, agent_messages, tool_calls, commands, file_changes, errors) =
+            event_metrics_query.fetch_one(&self.pool).await?;
+
+        let totals = TotalMetrics {
+            sessions,
+            events: nonnegative_u64(events.unwrap_or(0).max(0))?,
+            user_messages: nonnegative_u64(user_messages.unwrap_or(0).max(0))?,
+            agent_messages: nonnegative_u64(agent_messages.unwrap_or(0).max(0))?,
+            tool_calls: nonnegative_u64(tool_calls.unwrap_or(0).max(0))?,
+            commands: nonnegative_u64(commands.unwrap_or(0).max(0))?,
+            file_changes: nonnegative_u64(file_changes.unwrap_or(0).max(0))?,
+            errors: nonnegative_u64(errors.unwrap_or(0).max(0))?,
+            input_tokens: nonnegative_u64(input_tokens.unwrap_or(0).max(0))?,
+            output_tokens: nonnegative_u64(output_tokens.unwrap_or(0).max(0))?,
+            total_tokens: nonnegative_u64(total_tokens.unwrap_or(0).max(0))?,
+        };
+
+        // Per-source aggregation, ignoring the source filter to make comparison meaningful.
+        let source_sql = format!(
+            "SELECT s.source,
+                    COUNT(DISTINCT s.id),
+                    COUNT(e.id),
+                    SUM(CASE WHEN e.kind = 'tool_call'
+                                  AND COALESCE(json_extract(e.payload, '$.toolCategory'), '') != 'wait'
+                             THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN e.kind = 'command'
+                                  OR (e.kind = 'tool_call' AND json_extract(e.payload, '$.toolCategory') = 'command')
+                             THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN e.level = 'error' OR json_extract(e.payload, '$.failed') = 1 THEN 1 ELSE 0 END),
+                    COALESCE(SUM(s.total_tokens), 0)
+             FROM capture_sessions s
+             LEFT JOIN agent_events e ON e.session_id = s.id
+             WHERE s.updated_at BETWEEN ? AND ?{workspace_clause}
+             GROUP BY s.source
+             ORDER BY COUNT(DISTINCT s.id) DESC"
+        );
+        let mut source_query = sqlx::query_as::<
+            _,
+            (
+                String,
+                i64,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+            ),
+        >(&source_sql);
+        source_query = source_query.bind(&from).bind(&to);
+        if let Some(value) = workspace_value.as_ref() {
+            source_query = source_query.bind(value);
+        }
+        let source_rows = source_query.fetch_all(&self.pool).await?;
+        let mut by_source = Vec::with_capacity(source_rows.len());
+        for (source, sessions, events, tool_calls, commands, errors, tokens) in source_rows {
+            by_source.push(SourceInsight {
+                source: SessionSource::from_str(&source)?,
+                sessions: nonnegative_u64(sessions)?,
+                events: nonnegative_u64(events.unwrap_or(0).max(0))?,
+                tool_calls: nonnegative_u64(tool_calls.unwrap_or(0).max(0))?,
+                commands: nonnegative_u64(commands.unwrap_or(0).max(0))?,
+                errors: nonnegative_u64(errors.unwrap_or(0).max(0))?,
+                total_tokens: nonnegative_u64(tokens.unwrap_or(0).max(0))?,
+            });
+        }
+
+        // Per-workspace aggregation. Sessions with NULL workspace are grouped as "未分类".
+        let project_sql = format!(
+            "SELECT COALESCE(NULLIF(TRIM(s.workspace), ''), '未分类'),
+                    COUNT(DISTINCT s.id),
+                    COUNT(e.id),
+                    SUM(CASE WHEN e.level = 'error' OR json_extract(e.payload, '$.failed') = 1 THEN 1 ELSE 0 END),
+                    COALESCE(SUM(s.total_tokens), 0),
+                    MAX(s.updated_at)
+             FROM capture_sessions s
+             LEFT JOIN agent_events e ON e.session_id = s.id
+             WHERE s.updated_at BETWEEN ? AND ?{source_clause}
+             GROUP BY COALESCE(NULLIF(TRIM(s.workspace), ''), '未分类')
+             ORDER BY COUNT(DISTINCT s.id) DESC, MAX(s.updated_at) DESC
+             LIMIT ?"
+        );
+        let project_rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                i64,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+                Option<String>,
+            ),
+        >(&project_sql)
+        .bind(&from)
+        .bind(&to)
+        .bind(i64::from(query.project_limit))
+        .fetch_all(&self.pool)
+        .await?;
+        let mut by_project = Vec::with_capacity(project_rows.len());
+        for (workspace, sessions, events, errors, tokens, last_active) in project_rows {
+            let last_active_at = last_active
+                .as_deref()
+                .map(parse_time)
+                .transpose()?
+                .unwrap_or(query.to);
+            by_project.push(ProjectInsight {
+                workspace,
+                sessions: nonnegative_u64(sessions)?,
+                events: nonnegative_u64(events.unwrap_or(0).max(0))?,
+                errors: nonnegative_u64(errors.unwrap_or(0).max(0))?,
+                total_tokens: nonnegative_u64(tokens.unwrap_or(0).max(0))?,
+                last_active_at,
+            });
+        }
+
+        // Timeline bucketed by day or week.
+        let bucket_format = query.bucket.sqlite_format();
+        let timeline_sql = format!(
+            "SELECT strftime('{bucket_format}', s.started_at) AS bucket,
+                    COUNT(DISTINCT s.id),
+                    COUNT(e.id),
+                    SUM(CASE WHEN e.level = 'error' OR json_extract(e.payload, '$.failed') = 1 THEN 1 ELSE 0 END)
+             FROM capture_sessions s
+             LEFT JOIN agent_events e ON e.session_id = s.id
+             WHERE s.updated_at BETWEEN ? AND ?{source_clause}{workspace_clause}
+             GROUP BY bucket
+             ORDER BY bucket ASC"
+        );
+        let mut timeline_query =
+            sqlx::query_as::<_, (Option<String>, i64, Option<i64>, Option<i64>)>(&timeline_sql);
+        for value in &base_binds {
+            timeline_query = timeline_query.bind(value);
+        }
+        let timeline_rows = timeline_query.fetch_all(&self.pool).await?;
+        let mut timeline = Vec::with_capacity(timeline_rows.len());
+        for (bucket, sessions, events, errors) in timeline_rows {
+            let Some(bucket) = bucket else { continue };
+            timeline.push(TimeBucketPoint {
+                bucket,
+                sessions: nonnegative_u64(sessions)?,
+                events: nonnegative_u64(events.unwrap_or(0).max(0))?,
+                errors: nonnegative_u64(errors.unwrap_or(0).max(0))?,
+            });
+        }
+
+        // Rankings from tool events, honoring the source/workspace filters.
+        let ranking_binds = |field: &str| -> (String, Vec<String>) {
+            let sql = format!(
+                "SELECT json_extract(e.payload, '{field}') AS item_name, COUNT(*) AS occurrences
+                 FROM capture_sessions s
+                 JOIN agent_events e ON e.session_id = s.id
+                 WHERE s.updated_at BETWEEN ? AND ?{source_clause}{workspace_clause}
+                   AND e.kind = 'tool_call'
+                   AND COALESCE(json_extract(e.payload, '$.toolCategory'), '') != 'wait'
+                   AND json_extract(e.payload, '{field}') IS NOT NULL
+                   AND TRIM(json_extract(e.payload, '{field}')) != ''
+                 GROUP BY json_extract(e.payload, '{field}')
+                 ORDER BY occurrences DESC, item_name ASC
+                 LIMIT ?"
+            );
+            let mut binds = base_binds.clone();
+            binds.push(query.ranking_limit.to_string());
+            (sql, binds)
+        };
+
+        let (tools_sql, tools_binds) = ranking_binds("$.toolName");
+        let top_tools = ranked(&self.pool, &tools_sql, &tools_binds).await?;
+        let (skills_sql, skills_binds) = ranking_binds("$.skillName");
+        let top_skills = ranked(&self.pool, &skills_sql, &skills_binds).await?;
+        let (mcp_sql, mcp_binds) = ranking_binds("$.mcpServer");
+        let top_mcp = ranked(&self.pool, &mcp_sql, &mcp_binds).await?;
+
+        Ok(GlobalInsights {
+            from: query.from,
+            to: query.to,
+            totals,
+            by_source,
+            by_project,
+            timeline,
+            top_tools,
+            top_skills,
+            top_mcp,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -545,8 +868,11 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
-        application::ports::{CaptureRepository, GovernanceRepository, HistoryRepository},
+        application::ports::{
+            AnalyticsRepository, CaptureRepository, GovernanceRepository, HistoryRepository,
+        },
         domain::{
+            analytics::{AnalyticsQuery, TimeBucket},
             event::{EventKind, EventLevel, EventSource},
             governance::AgentDataSettings,
             history::{ImportedEvent, ImportedSession},
@@ -786,11 +1112,12 @@ mod tests {
                 now - chrono::Duration::days(90),
             ))
             .await
-            .expect("old persist").session_id;
+            .expect("old persist");
         let recent_id = repository
             .import_session(make(SessionSource::Claude, "recent-session", now))
             .await
-            .expect("recent persist").session_id;
+            .expect("recent persist")
+            .session_id;
         let cutoff = Utc::now() - chrono::Duration::days(30);
         assert_eq!(
             repository
@@ -815,6 +1142,436 @@ mod tests {
                 .expect("remaining sessions")
                 .iter()
                 .any(|session| session.id == recent_id)
+        );
+    }
+
+    fn sample_query(
+        from: chrono::DateTime<Utc>,
+        to: chrono::DateTime<Utc>,
+        bucket: TimeBucket,
+    ) -> AnalyticsQuery {
+        AnalyticsQuery {
+            source: None,
+            workspace: None,
+            from,
+            to,
+            bucket,
+            project_limit: 8,
+            ranking_limit: 8,
+        }
+    }
+
+    fn session(
+        source: SessionSource,
+        external_id: &str,
+        workspace: Option<&str>,
+        started_at: chrono::DateTime<Utc>,
+        updated_at: chrono::DateTime<Utc>,
+        events: Vec<ImportedEvent>,
+        total_tokens: Option<u64>,
+    ) -> ImportedSession {
+        ImportedSession {
+            source,
+            external_id: external_id.into(),
+            name: external_id.into(),
+            workspace: workspace.map(str::to_string),
+            usage: SessionUsage {
+                total_tokens,
+                input_tokens: total_tokens.map(|value| value / 2),
+                output_tokens: total_tokens.map(|value| value / 2),
+                ..SessionUsage::default()
+            },
+            source_path: format!("/tmp/{external_id}.jsonl").into(),
+            started_at,
+            updated_at,
+            events,
+        }
+    }
+
+    fn tool_event(
+        timestamp: chrono::DateTime<Utc>,
+        tool_name: &str,
+        category: &str,
+        skill: Option<&str>,
+        mcp: Option<&str>,
+    ) -> ImportedEvent {
+        let mut payload = json!({
+            "toolName": tool_name,
+            "toolCategory": category,
+        });
+        if let Some(skill_name) = skill {
+            payload["skillName"] = json!(skill_name);
+        }
+        if let Some(server) = mcp {
+            payload["mcpServer"] = json!(server);
+        }
+        ImportedEvent {
+            timestamp,
+            source: EventSource::Tool,
+            kind: EventKind::ToolCall,
+            level: EventLevel::Info,
+            summary: tool_name.into(),
+            payload,
+        }
+    }
+
+    #[tokio::test]
+    async fn global_insights_returns_empty_totals_for_empty_range() {
+        let repository = SqliteRepository::in_memory().await.expect("database");
+        let now = Utc::now();
+        let insights = repository
+            .global_insights(sample_query(
+                now - chrono::Duration::days(1),
+                now,
+                TimeBucket::Day,
+            ))
+            .await
+            .expect("insights");
+        assert_eq!(insights.totals.sessions, 0);
+        assert_eq!(insights.totals.events, 0);
+        assert!(insights.by_source.is_empty());
+        assert!(insights.timeline.is_empty());
+        assert!(insights.top_tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn global_insights_aggregates_across_sources() {
+        let repository = SqliteRepository::in_memory().await.expect("database");
+        let now = Utc::now();
+        let day_ago = now - chrono::Duration::days(1);
+
+        repository
+            .import_session(session(
+                SessionSource::Codex,
+                "codex-1",
+                Some("/tmp/a"),
+                day_ago,
+                day_ago,
+                vec![
+                    tool_event(day_ago, "Bash", "command", None, None),
+                    ImportedEvent {
+                        timestamp: day_ago,
+                        source: EventSource::User,
+                        kind: EventKind::Message,
+                        level: EventLevel::Info,
+                        summary: "hello".into(),
+                        payload: json!({}),
+                    },
+                ],
+                Some(100),
+            ))
+            .await
+            .expect("import codex");
+        repository
+            .import_session(session(
+                SessionSource::Claude,
+                "claude-1",
+                Some("/tmp/b"),
+                day_ago,
+                day_ago,
+                vec![tool_event(
+                    day_ago,
+                    "Read",
+                    "file",
+                    Some("code-review"),
+                    Some("chrome"),
+                )],
+                Some(200),
+            ))
+            .await
+            .expect("import claude");
+        repository
+            .import_session(session(
+                SessionSource::Gemini,
+                "gemini-1",
+                Some("/tmp/a"),
+                day_ago,
+                day_ago,
+                vec![],
+                Some(50),
+            ))
+            .await
+            .expect("import gemini");
+
+        let insights = repository
+            .global_insights(sample_query(
+                now - chrono::Duration::days(7),
+                now,
+                TimeBucket::Day,
+            ))
+            .await
+            .expect("insights");
+
+        assert_eq!(insights.totals.sessions, 3);
+        assert!(insights.totals.events >= 3);
+        assert_eq!(insights.by_source.len(), 3);
+        assert_eq!(
+            insights
+                .by_source
+                .iter()
+                .map(|item| item.sessions)
+                .sum::<u64>(),
+            3
+        );
+        assert!(
+            insights
+                .by_project
+                .iter()
+                .any(|project| project.workspace == "/tmp/a" && project.sessions == 2)
+        );
+    }
+
+    #[tokio::test]
+    async fn global_insights_filters_by_workspace() {
+        let repository = SqliteRepository::in_memory().await.expect("database");
+        let now = Utc::now();
+        let day_ago = now - chrono::Duration::days(1);
+
+        repository
+            .import_session(session(
+                SessionSource::Codex,
+                "ws-a",
+                Some("/Users/demo/a"),
+                day_ago,
+                day_ago,
+                vec![tool_event(day_ago, "Bash", "command", None, None)],
+                Some(10),
+            ))
+            .await
+            .expect("a");
+        repository
+            .import_session(session(
+                SessionSource::Claude,
+                "ws-b",
+                Some("/Users/demo/b"),
+                day_ago,
+                day_ago,
+                vec![tool_event(day_ago, "Read", "file", None, None)],
+                Some(20),
+            ))
+            .await
+            .expect("b");
+
+        let mut query = sample_query(now - chrono::Duration::days(7), now, TimeBucket::Day);
+        query.workspace = Some("/Users/demo/a".into());
+        let insights = repository.global_insights(query).await.expect("insights");
+
+        assert_eq!(insights.totals.sessions, 1);
+        assert_eq!(insights.totals.tool_calls, 1);
+        // by_source intentionally ignores source filter, but still respects workspace.
+        assert_eq!(insights.by_source.iter().map(|s| s.sessions).sum::<u64>(), 1);
+    }
+
+    #[tokio::test]
+    async fn global_insights_time_buckets_by_day_and_week() {
+        let repository = SqliteRepository::in_memory().await.expect("database");
+        let now = Utc::now();
+        let today = now;
+        let yesterday = now - chrono::Duration::days(1);
+        let last_week = now - chrono::Duration::days(8);
+
+        for (id, stamp) in [("d1", today), ("d2", yesterday), ("d3", last_week)] {
+            repository
+                .import_session(session(
+                    SessionSource::Codex,
+                    id,
+                    Some("/tmp/x"),
+                    stamp,
+                    stamp,
+                    vec![],
+                    None,
+                ))
+                .await
+                .expect("import");
+        }
+
+        let day_insights = repository
+            .global_insights(sample_query(
+                now - chrono::Duration::days(14),
+                now + chrono::Duration::hours(1),
+                TimeBucket::Day,
+            ))
+            .await
+            .expect("day");
+        assert!(day_insights.timeline.len() >= 2);
+        assert_eq!(
+            day_insights.timeline.iter().map(|p| p.sessions).sum::<u64>(),
+            3
+        );
+
+        let week_insights = repository
+            .global_insights(sample_query(
+                now - chrono::Duration::days(14),
+                now + chrono::Duration::hours(1),
+                TimeBucket::Week,
+            ))
+            .await
+            .expect("week");
+        assert!(!week_insights.timeline.is_empty());
+        assert_eq!(
+            week_insights
+                .timeline
+                .iter()
+                .map(|point| point.sessions)
+                .sum::<u64>(),
+            3
+        );
+        assert!(week_insights.timeline.iter().all(|point| point.bucket.contains('W')
+            || point.bucket.contains('-')));
+    }
+
+    #[tokio::test]
+    async fn global_insights_ranks_tools_by_frequency() {
+        let repository = SqliteRepository::in_memory().await.expect("database");
+        let now = Utc::now();
+        let stamp = now - chrono::Duration::hours(2);
+
+        repository
+            .import_session(session(
+                SessionSource::Claude,
+                "tools-1",
+                Some("/tmp/tools"),
+                stamp,
+                stamp,
+                vec![
+                    tool_event(stamp, "Bash", "command", None, None),
+                    tool_event(stamp, "Bash", "command", None, None),
+                    tool_event(stamp, "Read", "file", Some("review"), None),
+                    tool_event(stamp, "Wait", "wait", None, None),
+                    tool_event(stamp, "McpTool", "mcp", None, Some("devtools")),
+                ],
+                Some(30),
+            ))
+            .await
+            .expect("import");
+
+        let sessions = repository
+            .list_sessions(10, 0, None)
+            .await
+            .expect("sessions");
+        let session_id = sessions[0].id;
+        let events = repository
+            .list_events(session_id, 0, 20)
+            .await
+            .expect("events");
+        assert_eq!(events.len(), 5, "events={events:?}");
+        let tool_names: Vec<String> = events
+            .iter()
+            .filter_map(|event| {
+                event
+                    .payload
+                    .get("toolName")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            })
+            .collect();
+        assert_eq!(
+            tool_names,
+            vec!["Bash", "Bash", "Read", "Wait", "McpTool"],
+            "payload tool names should match fixtures; events={events:?}"
+        );
+
+        let insights = repository
+            .global_insights(sample_query(
+                now - chrono::Duration::days(1),
+                now,
+                TimeBucket::Day,
+            ))
+            .await
+            .expect("insights");
+
+        assert_eq!(
+            insights.totals.tool_calls, 4,
+            "wait tools excluded from tool_calls; totals={:?}",
+            insights.totals
+        );
+        assert_eq!(insights.top_tools.first().map(|item| item.name.as_str()), Some("Bash"));
+        let bash_count = insights
+            .top_tools
+            .iter()
+            .find(|item| item.name == "Bash")
+            .map(|item| item.count);
+        assert_eq!(bash_count, Some(2), "top_tools={:?}", insights.top_tools);
+        assert!(
+            insights
+                .top_tools
+                .iter()
+                .any(|item| item.name == "Read" && item.count == 1),
+            "top_tools={:?}",
+            insights.top_tools
+        );
+        assert!(
+            insights
+                .top_tools
+                .iter()
+                .all(|item| item.name != "Wait"),
+            "wait tools must be excluded; top_tools={:?}",
+            insights.top_tools
+        );
+        assert_eq!(
+            insights.top_skills.first().map(|item| item.name.as_str()),
+            Some("review")
+        );
+        assert_eq!(
+            insights.top_mcp.first().map(|item| item.name.as_str()),
+            Some("devtools")
+        );
+    }
+
+    #[tokio::test]
+    async fn global_insights_performance_baseline_is_interactive() {
+        let repository = SqliteRepository::in_memory().await.expect("database");
+        let now = Utc::now();
+
+        // Seed enough rows for a local interactive baseline without making CI too heavy.
+        for index in 0..2_000 {
+            let stamp = now - chrono::Duration::minutes(i64::from(index % 1_440));
+            let source = match index % 4 {
+                0 => SessionSource::Codex,
+                1 => SessionSource::Claude,
+                2 => SessionSource::Gemini,
+                _ => SessionSource::Cursor,
+            };
+            let events = (0..5)
+                .map(|event_index| {
+                    tool_event(
+                        stamp,
+                        if event_index % 2 == 0 { "Bash" } else { "Read" },
+                        if event_index % 3 == 0 { "wait" } else { "command" },
+                        Some("skill"),
+                        Some("mcp"),
+                    )
+                })
+                .collect();
+            repository
+                .import_session(session(
+                    source,
+                    &format!("perf-{index}"),
+                    Some(&format!("/tmp/project-{}", index % 20)),
+                    stamp,
+                    stamp,
+                    events,
+                    Some(100),
+                ))
+                .await
+                .expect("seed");
+        }
+
+        let started = std::time::Instant::now();
+        let insights = repository
+            .global_insights(sample_query(
+                now - chrono::Duration::days(2),
+                now,
+                TimeBucket::Day,
+            ))
+            .await
+            .expect("insights");
+        let elapsed = started.elapsed();
+
+        assert!(insights.totals.sessions > 0);
+        assert!(
+            elapsed.as_millis() < 1_500,
+            "global_insights should stay interactive; took {elapsed:?}"
         );
     }
 }

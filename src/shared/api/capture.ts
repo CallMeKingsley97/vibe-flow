@@ -8,6 +8,7 @@ import {
   CleanupResultSchema,
   CaptureSessionSchema,
   DataSettingsSchema,
+  GlobalInsightsSchema,
   HealthCheckSchema,
   HistoryChangeSchema,
   SourceScanStatusSchema,
@@ -18,6 +19,8 @@ import {
   type CleanupResult,
   type CaptureSession,
   type DataSettings,
+  type GlobalInsights,
+  type GlobalInsightsQuery,
   type HealthCheck,
   type HistoryChange,
   type SourceScanStatus,
@@ -102,4 +105,20 @@ export async function runDataCleanup(retentionDays: number): Promise<CleanupResu
 
 export function createDiagnosticBundle(): Promise<string> {
   return invoke<string>("create_diagnostic_bundle");
+}
+
+export async function getGlobalInsights(query: GlobalInsightsQuery = {}): Promise<GlobalInsights> {
+  return GlobalInsightsSchema.parse(
+    await invoke<unknown>("get_global_insights", {
+      query: {
+        source: query.source ?? null,
+        workspace: query.workspace ?? null,
+        from: query.from ?? null,
+        to: query.to ?? null,
+        bucket: query.bucket ?? null,
+        projectLimit: query.projectLimit ?? null,
+        rankingLimit: query.rankingLimit ?? null,
+      },
+    }),
+  );
 }

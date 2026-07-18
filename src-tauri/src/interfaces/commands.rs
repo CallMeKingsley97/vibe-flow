@@ -2,12 +2,18 @@ use tauri::{AppHandle, State, ipc::Channel};
 use tauri_plugin_updater::UpdaterExt;
 use uuid::Uuid;
 
-use crate::{app_state::AppState, domain::{error::AppError, session::SessionSource}};
+use chrono::{DateTime, Utc};
+
+use crate::{
+    app_state::AppState,
+    application::analytics_service::AnalyticsRequest,
+    domain::{error::AppError, session::SessionSource},
+};
 
 use super::dto::{
     AgentEventDto, ApiErrorDto, CaptureSessionDto, CleanupPreviewDto, CleanupResultDto,
-    DataSettingsDto, HealthCheckDto, HistoryChangeDto, SourceScanStatusDto, StorageStatsDto,
-    UpdateCheckDto, UpdateDataSettingsDto,
+    DataSettingsDto, GlobalInsightsDto, GlobalInsightsQueryDto, HealthCheckDto, HistoryChangeDto,
+    SourceScanStatusDto, StorageStatsDto, UpdateCheckDto, UpdateDataSettingsDto,
 };
 
 fn parse_id(value: &str, resource: &str) -> Result<Uuid, ApiErrorDto> {
@@ -210,5 +216,49 @@ pub async fn create_diagnostic_bundle(state: State<'_, AppState>) -> Result<Stri
         .create_diagnostic_bundle()
         .await
         .map(|path| path.display().to_string())
+        .map_err(Into::into)
+}
+
+fn parse_optional_time(value: Option<&str>, field: &str) -> Result<Option<DateTime<Utc>>, AppError> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            DateTime::parse_from_rfc3339(value)
+                .map(|time| time.with_timezone(&Utc))
+                .map_err(|error| AppError::Validation(format!("invalid {field} timestamp: {error}")))
+        })
+        .transpose()
+}
+
+#[tauri::command]
+pub async fn get_global_insights(
+    query: GlobalInsightsQueryDto,
+    state: State<'_, AppState>,
+) -> Result<GlobalInsightsDto, ApiErrorDto> {
+    let source = query
+        .source
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::parse::<SessionSource>)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    let from = parse_optional_time(query.from.as_deref(), "from")?;
+    let to = parse_optional_time(query.to.as_deref(), "to")?;
+    let bucket = query.parse_bucket()?;
+    state
+        .analytics_service
+        .global_insights(AnalyticsRequest {
+            source,
+            workspace: query.workspace,
+            from,
+            to,
+            bucket,
+            project_limit: query.project_limit,
+            ranking_limit: query.ranking_limit,
+        })
+        .await
+        .map(Into::into)
         .map_err(Into::into)
 }

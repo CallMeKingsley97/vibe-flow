@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { useCaptureSessions } from "../../features/capture-session/model/useCaptureSessions";
 import { useSessionEvents } from "../../features/capture-session/model/useSessionEvents";
@@ -43,6 +44,8 @@ function SourceStatus({ status }: { status: SourceScanStatus }) {
 }
 
 export function DashboardPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const workspaceFilter = searchParams.get("workspace");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const sessionModel = useCaptureSessions(sourceFilter);
   const refreshSessions = sessionModel.refresh;
@@ -52,12 +55,22 @@ export function DashboardPage() {
   const [detailView, setDetailView] = useState<"insights" | "timeline">("insights");
   const [focusEventId, setFocusEventId] = useState<string | null>(null);
 
-  // 后端已按 source 过滤；这里直接使用返回结果
-  const filteredSessions = sessionModel.sessions;
+  // 后端已按 source 过滤；workspace 来自洞察页 URL query。
+  const filteredSessions = useMemo(() => {
+    if (!workspaceFilter) return sessionModel.sessions;
+    return sessionModel.sessions.filter((session) => session.workspace === workspaceFilter);
+  }, [sessionModel.sessions, workspaceFilter]);
 
   useEffect(() => {
     if (!selectedId && filteredSessions[0]) setSelectedId(filteredSessions[0].id);
   }, [filteredSessions, selectedId]);
+
+  useEffect(() => {
+    if (!workspaceFilter) return;
+    if (!filteredSessions.some((session) => session.id === selectedId)) {
+      setSelectedId(filteredSessions[0]?.id ?? null);
+    }
+  }, [filteredSessions, selectedId, workspaceFilter]);
 
   const selected = useMemo(
     () => sessionModel.sessions.find((session) => session.id === selectedId) ?? null,
@@ -110,9 +123,27 @@ export function DashboardPage() {
                 </button>
               ))}
             </div>
+            {workspaceFilter ? (
+              <div className="workspace-filter-chip" title={workspaceFilter}>
+                <span>项目：{workspaceFilter}</span>
+                <button
+                  onClick={() => {
+                    const next = new URLSearchParams(searchParams);
+                    next.delete("workspace");
+                    setSearchParams(next, { replace: true });
+                    setSelectedId(null);
+                  }}
+                  type="button"
+                >
+                  清除
+                </button>
+              </div>
+            ) : null}
             {sessionModel.loading ? <div className="empty-state">正在加载…</div> : null}
             {!sessionModel.loading && filteredSessions.length === 0 ? (
-              <div className="empty-state">这个来源还没有可读取的会话</div>
+              <div className="empty-state">
+                {workspaceFilter ? "该项目下没有可读取的会话" : "这个来源还没有可读取的会话"}
+              </div>
             ) : null}
             <div className="session-list">
               {filteredSessions.map((session: CaptureSession) => (

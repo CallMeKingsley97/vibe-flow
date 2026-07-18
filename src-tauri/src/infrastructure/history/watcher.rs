@@ -73,11 +73,17 @@ impl HistoryWatcher {
                 for path in paths {
                     // 跳过 sqlite 旁路与临时文件，避免无关键变更触发同步
                     if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
-                        if name.ends_with("-wal")
-                            || name.ends_with("-shm")
-                            || name.ends_with("-journal")
-                            || name.ends_with(".tmp")
-                            || name.ends_with(".temp")
+                        let lower = name.to_ascii_lowercase();
+                        let is_temp_ext = path
+                            .extension()
+                            .and_then(|ext| ext.to_str())
+                            .is_some_and(|ext| {
+                                ext.eq_ignore_ascii_case("tmp") || ext.eq_ignore_ascii_case("temp")
+                            });
+                        if lower.ends_with("-wal")
+                            || lower.ends_with("-shm")
+                            || lower.ends_with("-journal")
+                            || is_temp_ext
                         {
                             continue;
                         }
