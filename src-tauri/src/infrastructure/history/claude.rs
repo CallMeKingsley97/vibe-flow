@@ -17,6 +17,7 @@ use crate::domain::{
 use super::adapter::{
     AgentHistoryAdapter, add_optional_u64, compact_text, complete_total_tokens, extract_text,
     file_timestamp, json_u64, nonempty_string, parse_timestamp, path_external_id,
+    resolve_claude_base_url,
 };
 
 pub struct ClaudeAdapter;
@@ -279,6 +280,16 @@ impl AgentHistoryAdapter for ClaudeAdapter {
                 |event| compact_text(&event.summary, 80),
             );
         complete_total_tokens(&mut usage);
+        if usage.base_url.is_none() {
+            // 仅从会话路径上的 `~/.claude` 解析，避免临时 fixture 误读本机配置。
+            if let Some(home) = path
+                .ancestors()
+                .find(|ancestor| ancestor.ends_with(".claude"))
+                .and_then(Path::parent)
+            {
+                usage.base_url = resolve_claude_base_url(home, workspace.as_deref());
+            }
+        }
 
         Ok(Some(ImportedSession {
             source: SessionSource::Claude,

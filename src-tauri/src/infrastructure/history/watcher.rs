@@ -195,7 +195,7 @@ mod tests {
         timeout(Duration::from_secs(5), async {
             loop {
                 let sessions = query_service
-                    .list_sessions(10, 0, None)
+                    .list_sessions(10, 0, None, false)
                     .await
                     .expect("sessions should load");
                 if sessions
@@ -224,7 +224,7 @@ mod tests {
         timeout(Duration::from_secs(5), async {
             loop {
                 let sessions = query_service
-                    .list_sessions(10, 0, None)
+                    .list_sessions(10, 0, None, false)
                     .await
                     .expect("sessions should refresh");
                 if sessions.iter().any(|session| {

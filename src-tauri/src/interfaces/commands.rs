@@ -7,13 +7,13 @@ use chrono::{DateTime, Utc};
 use crate::{
     app_state::AppState,
     application::analytics_service::AnalyticsRequest,
-    domain::{error::AppError, session::SessionSource},
+    domain::{error::AppError, search::{SearchQuery, SearchScope}, session::SessionSource},
 };
 
 use super::dto::{
     AgentEventDto, ApiErrorDto, CaptureSessionDto, CleanupPreviewDto, CleanupResultDto,
     DataSettingsDto, GlobalInsightsDto, GlobalInsightsQueryDto, HealthCheckDto, HistoryChangeDto,
-    SourceScanStatusDto, StorageStatsDto, UpdateCheckDto, UpdateDataSettingsDto,
+    SearchResultDto, SourceScanStatusDto, StorageStatsDto, UpdateCheckDto, UpdateDataSettingsDto,
 };
 
 fn parse_id(value: &str, resource: &str) -> Result<Uuid, ApiErrorDto> {
@@ -83,6 +83,7 @@ pub async fn list_capture_sessions(
     limit: Option<u32>,
     offset: Option<u32>,
     source: Option<String>,
+    favorite_only: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<Vec<CaptureSessionDto>, ApiErrorDto> {
     let source = source
@@ -92,9 +93,60 @@ pub async fn list_capture_sessions(
         .map_err(|error| AppError::Validation(error.to_string()))?;
     state
         .query_service
-        .list_sessions(limit.unwrap_or(500), offset.unwrap_or(0), source)
+        .list_sessions(
+            limit.unwrap_or(500),
+            offset.unwrap_or(0),
+            source,
+            favorite_only.unwrap_or(false),
+        )
         .await
         .map(|sessions| sessions.into_iter().map(Into::into).collect())
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn set_session_favorite(
+    session_id: String,
+    favorite: bool,
+    state: State<'_, AppState>,
+) -> Result<CaptureSessionDto, ApiErrorDto> {
+    state
+        .query_service
+        .set_session_favorite(parse_id(&session_id, "session")?, favorite)
+        .await
+        .map(Into::into)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn search_agent_history(
+    query: String,
+    source: Option<String>,
+    workspace: Option<String>,
+    scope: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<SearchResultDto, ApiErrorDto> {
+    let source = source
+        .as_deref()
+        .map(str::parse::<SessionSource>)
+        .transpose()
+        .map_err(|error| AppError::Validation(error.to_string()))?;
+    let scope = SearchScope::parse(scope.as_deref())?;
+    let search = SearchQuery::new(
+        &query,
+        source,
+        workspace,
+        scope,
+        limit.unwrap_or(50),
+        offset.unwrap_or(0),
+    )?;
+    state
+        .query_service
+        .search(search)
+        .await
+        .map(Into::into)
         .map_err(Into::into)
 }
 

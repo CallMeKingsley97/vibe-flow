@@ -41,12 +41,14 @@ export const CaptureSessionSchema = z.object({
   sourcePath: z.string().nullable(),
   workspace: z.string().nullable(),
   model: z.string().nullable(),
+  baseUrl: z.string().nullable(),
   reasoningEffort: z.string().nullable(),
   inputTokens: z.number().int().nonnegative().nullable(),
   cachedInputTokens: z.number().int().nonnegative().nullable(),
   outputTokens: z.number().int().nonnegative().nullable(),
   reasoningOutputTokens: z.number().int().nonnegative().nullable(),
   totalTokens: z.number().int().nonnegative().nullable(),
+  isFavorite: z.boolean(),
   updatedAt: z.iso.datetime({ offset: true }),
 });
 export type CaptureSession = z.infer<typeof CaptureSessionSchema>;
@@ -157,6 +159,15 @@ export const ProviderInsightSchema = z.object({
 });
 export type ProviderInsight = z.infer<typeof ProviderInsightSchema>;
 
+export const BaseUrlInsightSchema = z.object({
+  baseUrl: z.string(),
+  sessions: z.number().int().nonnegative(),
+  events: z.number().int().nonnegative(),
+  errors: z.number().int().nonnegative(),
+  totalTokens: z.number().int().nonnegative(),
+});
+export type BaseUrlInsight = z.infer<typeof BaseUrlInsightSchema>;
+
 export const ProjectInsightSchema = z.object({
   workspace: z.string(),
   sessions: z.number().int().nonnegative(),
@@ -187,6 +198,7 @@ export const GlobalInsightsSchema = z.object({
   totals: TotalMetricsSchema,
   bySource: z.array(SourceInsightSchema),
   byProvider: z.array(ProviderInsightSchema),
+  byBaseUrl: z.array(BaseUrlInsightSchema),
   byProject: z.array(ProjectInsightSchema),
   timeline: z.array(TimeBucketPointSchema),
   topTools: z.array(RankedItemSchema),
@@ -203,4 +215,66 @@ export interface GlobalInsightsQuery {
   bucket?: TimeBucket;
   projectLimit?: number;
   rankingLimit?: number;
+}
+
+export const SearchScopeSchema = z.enum([
+  "all",
+  "messages",
+  "commands",
+  "tools",
+  "skills",
+  "mcp",
+  "sessions",
+]);
+export type SearchScope = z.infer<typeof SearchScopeSchema>;
+
+export const SearchMatchFieldSchema = z.enum([
+  "session_name",
+  "workspace",
+  "summary",
+  "tool_name",
+  "skill",
+  "mcp",
+  "command",
+]);
+export type SearchMatchField = z.infer<typeof SearchMatchFieldSchema>;
+
+export const SearchHitSchema = z.object({
+  sessionId: z.uuid(),
+  sessionName: z.string(),
+  source: SessionSourceSchema,
+  workspace: z.string().nullable(),
+  updatedAt: z.iso.datetime({ offset: true }),
+  eventId: z.uuid().nullable(),
+  sequence: z.number().int().nonnegative().nullable(),
+  kind: z
+    .enum([
+      "message",
+      "reasoning",
+      "llm_usage",
+      "tool_call",
+      "tool_result",
+      "command",
+      "file_change",
+    ])
+    .nullable(),
+  timestamp: z.iso.datetime({ offset: true }).nullable(),
+  matchField: SearchMatchFieldSchema,
+  snippet: z.string(),
+});
+export type SearchHit = z.infer<typeof SearchHitSchema>;
+
+export const SearchResultSchema = z.object({
+  hits: z.array(SearchHitSchema),
+  hasMore: z.boolean(),
+});
+export type SearchResult = z.infer<typeof SearchResultSchema>;
+
+export interface SearchAgentHistoryQuery {
+  query: string;
+  source?: SessionSource;
+  workspace?: string;
+  scope?: SearchScope;
+  limit?: number;
+  offset?: number;
 }

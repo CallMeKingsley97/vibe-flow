@@ -80,6 +80,7 @@ mod tests {
         assert_eq!(session.usage.model.as_deref(), Some("gpt-5"));
         assert_eq!(session.usage.reasoning_effort.as_deref(), Some("high"));
         assert_eq!(session.usage.total_tokens, Some(1_500));
+        assert_eq!(session.usage.base_url, None);
         assert!(
             session
                 .events
@@ -126,6 +127,42 @@ mod tests {
     }
 
     #[test]
+    fn resolves_codex_base_url_from_config() {
+        let home = std::env::temp_dir().join(format!("vibe-flow-codex-home-{}", Uuid::new_v4()));
+        let sessions = home.join(".codex/sessions");
+        fs::create_dir_all(&sessions).expect("sessions dir");
+        fs::write(
+            home.join(".codex/config.toml"),
+            r#"
+model_provider = "gpt"
+[model_providers.gpt]
+name = "proxy"
+base_url = "https://api.ark717.com/v1/"
+"#,
+        )
+        .expect("config");
+        let path = sessions.join("session.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"session_meta\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"payload\":{\"id\":\"codex-base\",\"cwd\":\"/repo\",\"model_provider\":\"gpt\"}}\n",
+                "{\"type\":\"turn_context\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"payload\":{\"model\":\"gpt-5\",\"effort\":\"high\"}}\n",
+                "{\"type\":\"event_msg\",\"timestamp\":\"2026-07-15T00:00:01Z\",\"payload\":{\"type\":\"user_message\",\"message\":\"Hello\"}}\n"
+            ),
+        )
+        .expect("session");
+        let session = CodexAdapter
+            .parse(&path)
+            .expect("parse")
+            .expect("session");
+        assert_eq!(
+            session.usage.base_url.as_deref(),
+            Some("https://api.ark717.com/v1")
+        );
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
     fn parses_claude_jsonl() {
         let path = fixture_path("jsonl");
         fs::write(
@@ -145,6 +182,7 @@ mod tests {
         assert_eq!(session.usage.model.as_deref(), Some("claude-opus-4-1"));
         assert_eq!(session.usage.reasoning_effort.as_deref(), Some("enabled"));
         assert_eq!(session.usage.total_tokens, Some(800));
+        assert_eq!(session.usage.base_url, None);
         assert!(
             session
                 .events
@@ -166,6 +204,36 @@ mod tests {
                 == Some("cargo test")
         }));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn resolves_claude_base_url_from_settings() {
+        let home = std::env::temp_dir().join(format!("vibe-flow-claude-home-{}", Uuid::new_v4()));
+        let projects = home.join(".claude/projects/demo");
+        fs::create_dir_all(&projects).expect("projects dir");
+        fs::write(
+            home.join(".claude/settings.json"),
+            r#"{"env":{"ANTHROPIC_BASE_URL":"https://xiaoxiaobai.me/"}}"#,
+        )
+        .expect("settings");
+        let path = projects.join("session.jsonl");
+        fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"sessionId\":\"claude-base\",\"cwd\":\"/repo\",\"timestamp\":\"2026-07-15T00:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"Explain this\"}}\n",
+                "{\"type\":\"assistant\",\"sessionId\":\"claude-base\",\"timestamp\":\"2026-07-15T00:00:01Z\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-opus-4-1\",\"usage\":{\"input_tokens\":10,\"output_tokens\":5},\"content\":[{\"type\":\"text\",\"text\":\"Answer\"}]}}\n"
+            ),
+        )
+        .expect("session");
+        let session = ClaudeAdapter
+            .parse(&path)
+            .expect("parse")
+            .expect("session");
+        assert_eq!(
+            session.usage.base_url.as_deref(),
+            Some("https://xiaoxiaobai.me")
+        );
+        let _ = fs::remove_dir_all(home);
     }
 
     #[test]

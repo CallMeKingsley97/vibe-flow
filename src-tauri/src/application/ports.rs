@@ -8,6 +8,7 @@ use crate::domain::{
     event::AgentEvent,
     governance::{AgentDataSettings, CleanupPreview, CleanupResult, StorageStats},
     history::ImportedSession,
+    search::{SearchQuery, SearchResult},
     session::{CaptureSession, SessionSource},
 };
 
@@ -18,6 +19,7 @@ pub trait CaptureRepository: Send + Sync {
         limit: u32,
         offset: u32,
         source: Option<SessionSource>,
+        favorite_only: bool,
     ) -> Result<Vec<CaptureSession>, AppError>;
     async fn list_events(
         &self,
@@ -25,6 +27,12 @@ pub trait CaptureRepository: Send + Sync {
         after_sequence: u64,
         limit: u32,
     ) -> Result<Vec<AgentEvent>, AppError>;
+    async fn set_session_favorite(
+        &self,
+        session_id: Uuid,
+        favorite: bool,
+    ) -> Result<CaptureSession, AppError>;
+    async fn search(&self, query: SearchQuery) -> Result<SearchResult, AppError>;
     async fn ping(&self) -> Result<(), AppError>;
 }
 

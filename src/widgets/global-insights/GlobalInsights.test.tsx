@@ -59,6 +59,22 @@ function sampleInsights(): GlobalInsights {
         totalTokens: 500,
       },
     ],
+    byBaseUrl: [
+      {
+        baseUrl: "https://xiaoxiaobai.me",
+        sessions: 6,
+        events: 120,
+        errors: 1,
+        totalTokens: 700,
+      },
+      {
+        baseUrl: "https://api.ark717.com/v1",
+        sessions: 4,
+        events: 80,
+        errors: 2,
+        totalTokens: 500,
+      },
+    ],
     byProject: [
       {
         workspace: "/Users/demo/project-a",
@@ -107,7 +123,7 @@ describe("GlobalInsightsView", () => {
     expect(screen.getByText("跨 Agent 洞察")).toBeTruthy();
     expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
-    expect(screen.getByText("Provider / 模型对比")).toBeTruthy();
+    expect(screen.getByText("模型对比")).toBeTruthy();
     expect(screen.getByText("claude-opus-4")).toBeTruthy();
     expect(screen.getByText("/Users/demo/project-a")).toBeTruthy();
     expect(screen.getByText("Bash")).toBeTruthy();
@@ -135,6 +151,7 @@ describe("GlobalInsightsView", () => {
     empty.totals.events = 0;
     empty.bySource = [];
     empty.byProvider = [];
+    empty.byBaseUrl = [];
     empty.byProject = [];
     empty.timeline = [];
     empty.topTools = [];
@@ -168,6 +185,7 @@ describe("GlobalInsightsView", () => {
     empty.totals.events = 0;
     empty.bySource = [];
     empty.byProvider = [];
+    empty.byBaseUrl = [];
     empty.byProject = [];
     empty.timeline = [];
     empty.topTools = [];

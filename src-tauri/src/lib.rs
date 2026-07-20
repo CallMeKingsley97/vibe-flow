@@ -101,6 +101,8 @@ pub fn run() {
             commands::check_for_update,
             commands::install_available_update,
             commands::list_capture_sessions,
+            commands::set_session_favorite,
+            commands::search_agent_history,
             commands::list_agent_events,
             commands::scan_local_history,
             commands::get_source_scan_statuses,

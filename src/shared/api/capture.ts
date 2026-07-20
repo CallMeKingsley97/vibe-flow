@@ -11,6 +11,7 @@ import {
   GlobalInsightsSchema,
   HealthCheckSchema,
   HistoryChangeSchema,
+  SearchResultSchema,
   SourceScanStatusSchema,
   StorageStatsSchema,
   UpdateCheckSchema,
@@ -23,6 +24,8 @@ import {
   type GlobalInsightsQuery,
   type HealthCheck,
   type HistoryChange,
+  type SearchAgentHistoryQuery,
+  type SearchResult,
   type SourceScanStatus,
   type StorageStats,
   type UpdateCheck,
@@ -45,12 +48,38 @@ export async function listCaptureSessions(
   limit = 500,
   offset = 0,
   source?: CaptureSession["source"],
+  favoriteOnly = false,
 ): Promise<CaptureSession[]> {
   return z.array(CaptureSessionSchema).parse(
     await invoke<unknown>("list_capture_sessions", {
       limit,
       offset,
       source: source ?? null,
+      favoriteOnly,
+    }),
+  );
+}
+
+export async function setSessionFavorite(
+  sessionId: string,
+  favorite: boolean,
+): Promise<CaptureSession> {
+  return CaptureSessionSchema.parse(
+    await invoke<unknown>("set_session_favorite", { sessionId, favorite }),
+  );
+}
+
+export async function searchAgentHistory(
+  query: SearchAgentHistoryQuery,
+): Promise<SearchResult> {
+  return SearchResultSchema.parse(
+    await invoke<unknown>("search_agent_history", {
+      query: query.query,
+      source: query.source ?? null,
+      workspace: query.workspace ?? null,
+      scope: query.scope ?? null,
+      limit: query.limit ?? null,
+      offset: query.offset ?? null,
     }),
   );
 }

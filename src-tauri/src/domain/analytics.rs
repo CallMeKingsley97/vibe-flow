@@ -65,10 +65,20 @@ pub struct ProjectInsight {
     pub last_active_at: DateTime<Utc>,
 }
 
-/// Aggregated by the model/provider string stored on sessions (e.g. claude-opus, gpt-5).
+/// Aggregated by the model string stored on sessions (e.g. claude-opus, gpt-5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderInsight {
     pub provider: String,
+    pub sessions: u64,
+    pub events: u64,
+    pub errors: u64,
+    pub total_tokens: u64,
+}
+
+/// Aggregated by the API base URL behind a model (e.g. `<https://api.ark717.com/v1>`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BaseUrlInsight {
+    pub base_url: String,
     pub sessions: u64,
     pub events: u64,
     pub errors: u64,
@@ -96,6 +106,7 @@ pub struct GlobalInsights {
     pub totals: TotalMetrics,
     pub by_source: Vec<SourceInsight>,
     pub by_provider: Vec<ProviderInsight>,
+    pub by_base_url: Vec<BaseUrlInsight>,
     pub by_project: Vec<ProjectInsight>,
     pub timeline: Vec<TimeBucketPoint>,
     pub top_tools: Vec<RankedItem>,

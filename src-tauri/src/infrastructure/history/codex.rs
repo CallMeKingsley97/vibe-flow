@@ -16,7 +16,7 @@ use crate::domain::{
 
 use super::adapter::{
     AgentHistoryAdapter, compact_text, extract_text, file_timestamp, json_u64, nonempty_string,
-    parse_timestamp, path_external_id,
+    parse_timestamp, path_external_id, resolve_codex_base_url,
 };
 
 pub struct CodexAdapter;
@@ -302,6 +302,7 @@ impl AgentHistoryAdapter for CodexAdapter {
             .collect()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn parse(&self, path: &Path) -> Result<Option<ImportedSession>, AppError> {
         let fallback = file_timestamp(path);
         let file = File::open(path).map_err(|error| AppError::Internal(error.to_string()))?;
@@ -311,6 +312,7 @@ impl AgentHistoryAdapter for CodexAdapter {
         let mut events = Vec::new();
         let mut fallback_messages = Vec::new();
         let mut usage = SessionUsage::default();
+        let mut model_provider: Option<String> = None;
 
         for line in BufReader::new(file).lines() {
             let line = line.map_err(|error| AppError::Internal(error.to_string()))?;
@@ -333,10 +335,21 @@ impl AgentHistoryAdapter for CodexAdapter {
                             .and_then(Value::as_str)
                             .map(ToOwned::to_owned);
                         started_at = parse_timestamp(payload.get("timestamp"), timestamp);
+                        if model_provider.is_none() {
+                            model_provider = nonempty_string(payload.get("model_provider"));
+                        }
                     }
                 }
                 Some("event_msg") => {
                     if let Some(payload) = record.get("payload") {
+                        if payload.get("type").and_then(Value::as_str)
+                            == Some("thread_settings_applied")
+                            && model_provider.is_none()
+                        {
+                            model_provider = payload.get("thread_settings").and_then(|settings| {
+                                nonempty_string(settings.get("model_provider_id"))
+                            });
+                        }
                         if !Self::update_usage("event_msg", payload, &mut usage)
                             && let Some(event) = Self::event_from_message(payload, timestamp)
                         {
@@ -390,6 +403,16 @@ impl AgentHistoryAdapter for CodexAdapter {
                 |event| compact_text(&event.summary, 80),
             );
         let updated_at = events.last().map_or(fallback, |event| event.timestamp);
+        if usage.base_url.is_none() {
+            // 仅从会话路径上的 `~/.codex` 解析，避免临时 fixture 误读本机配置。
+            if let Some(home) = path
+                .ancestors()
+                .find(|ancestor| ancestor.ends_with(".codex"))
+                .and_then(Path::parent)
+            {
+                usage.base_url = resolve_codex_base_url(home, model_provider.as_deref());
+            }
+        }
 
         Ok(Some(ImportedSession {
             source: SessionSource::Codex,

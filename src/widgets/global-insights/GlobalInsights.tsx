@@ -201,6 +201,10 @@ export function GlobalInsightsView({
     () => Math.max(1, ...(data?.byProvider.map((item) => item.sessions) ?? [1])),
     [data],
   );
+  const maxBaseUrlSessions = useMemo(
+    () => Math.max(1, ...(data?.byBaseUrl.map((item) => item.sessions) ?? [1])),
+    [data],
+  );
 
   const controls = (
     <InsightsControls
@@ -349,10 +353,10 @@ export function GlobalInsightsView({
         <section className="insights-card">
           <header>
             <div>
-              <span className="eyebrow">PROVIDER COMPARE</span>
-              <h3>Provider / 模型对比</h3>
+              <span className="eyebrow">MODEL COMPARE</span>
+              <h3>模型对比</h3>
             </div>
-            <small>按会话模型聚合 · 看错误与用量</small>
+            <small>按会话模型名聚合 · 看错误与用量</small>
           </header>
           {data.byProvider.length ? (
             <div className="insights-compare">
@@ -382,7 +386,47 @@ export function GlobalInsightsView({
               })}
             </div>
           ) : (
-            <div className="insights-empty">当前范围内没有可识别的 Provider / 模型数据。</div>
+            <div className="insights-empty">当前范围内没有可识别的模型数据。</div>
+          )}
+        </section>
+
+        <section className="insights-card">
+          <header>
+            <div>
+              <span className="eyebrow">BASE URL COMPARE</span>
+              <h3>API 提供商对比</h3>
+            </div>
+            <small>按 base_url 聚合 · 模型背后的 API 端点</small>
+          </header>
+          {data.byBaseUrl.length ? (
+            <div className="insights-compare">
+              {data.byBaseUrl.map((item) => {
+                const errorRate =
+                  item.sessions > 0 ? Math.round((item.errors / item.sessions) * 10) / 10 : 0;
+                return item.sessions ? (
+                  <SourceCompareRow
+                    key={item.baseUrl}
+                    label={item.baseUrl}
+                    sessions={item.sessions}
+                    errors={item.errors}
+                    tokens={item.totalTokens}
+                    maxSessions={maxBaseUrlSessions}
+                    metaExtra={`${errorRate} 错/会话`}
+                  />
+                ) : (
+                  <SourceCompareRow
+                    key={item.baseUrl}
+                    label={item.baseUrl}
+                    sessions={item.sessions}
+                    errors={item.errors}
+                    tokens={item.totalTokens}
+                    maxSessions={maxBaseUrlSessions}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="insights-empty">当前范围内没有可识别的 base_url 提供商数据。</div>
           )}
         </section>
 
