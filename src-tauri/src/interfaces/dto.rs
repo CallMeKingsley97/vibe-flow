@@ -3,12 +3,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::{
     analytics::{
-        GlobalInsights, ProjectInsight, RankedItem, SourceInsight, TimeBucket, TimeBucketPoint,
-        TotalMetrics,
+        BaseUrlInsight, GlobalInsights, ProjectInsight, RankedItem, SourceInsight, TimeBucket,
+        TimeBucketPoint, TotalMetrics,
     },
     error::AppError,
     event::AgentEvent,
     governance::{AgentDataSettings, CleanupPreview, CleanupResult, StorageStats},
+    search::{SearchHit, SearchResult},
     session::CaptureSession,
 };
 
@@ -115,12 +116,14 @@ pub struct CaptureSessionDto {
     pub source_path: Option<String>,
     pub workspace: Option<String>,
     pub model: Option<String>,
+    pub base_url: Option<String>,
     pub reasoning_effort: Option<String>,
     pub input_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub reasoning_output_tokens: Option<u64>,
     pub total_tokens: Option<u64>,
+    pub is_favorite: bool,
     pub updated_at: String,
 }
 
@@ -138,12 +141,14 @@ impl From<CaptureSession> for CaptureSessionDto {
             source_path: value.source_path,
             workspace: value.workspace,
             model: value.usage.model,
+            base_url: value.usage.base_url,
             reasoning_effort: value.usage.reasoning_effort,
             input_tokens: value.usage.input_tokens,
             cached_input_tokens: value.usage.cached_input_tokens,
             output_tokens: value.usage.output_tokens,
             reasoning_output_tokens: value.usage.reasoning_output_tokens,
             total_tokens: value.usage.total_tokens,
+            is_favorite: value.is_favorite,
             updated_at: value.updated_at.to_rfc3339(),
         }
     }
@@ -365,6 +370,28 @@ impl From<crate::domain::analytics::ProviderInsight> for ProviderInsightDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BaseUrlInsightDto {
+    pub base_url: String,
+    pub sessions: u64,
+    pub events: u64,
+    pub errors: u64,
+    pub total_tokens: u64,
+}
+
+impl From<BaseUrlInsight> for BaseUrlInsightDto {
+    fn from(value: BaseUrlInsight) -> Self {
+        Self {
+            base_url: value.base_url,
+            sessions: value.sessions,
+            events: value.events,
+            errors: value.errors,
+            total_tokens: value.total_tokens,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimeBucketPointDto {
     pub bucket: String,
     pub sessions: u64,
@@ -407,6 +434,7 @@ pub struct GlobalInsightsDto {
     pub totals: TotalMetricsDto,
     pub by_source: Vec<SourceInsightDto>,
     pub by_provider: Vec<ProviderInsightDto>,
+    pub by_base_url: Vec<BaseUrlInsightDto>,
     pub by_project: Vec<ProjectInsightDto>,
     pub timeline: Vec<TimeBucketPointDto>,
     pub top_tools: Vec<RankedItemDto>,
@@ -422,6 +450,7 @@ impl From<GlobalInsights> for GlobalInsightsDto {
             totals: value.totals.into(),
             by_source: value.by_source.into_iter().map(Into::into).collect(),
             by_provider: value.by_provider.into_iter().map(Into::into).collect(),
+            by_base_url: value.by_base_url.into_iter().map(Into::into).collect(),
             by_project: value.by_project.into_iter().map(Into::into).collect(),
             timeline: value.timeline.into_iter().map(Into::into).collect(),
             top_tools: value.top_tools.into_iter().map(Into::into).collect(),
@@ -441,6 +470,56 @@ impl From<AppError> for ApiErrorDto {
         Self {
             code,
             message: value.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHitDto {
+    pub session_id: String,
+    pub session_name: String,
+    pub source: String,
+    pub workspace: Option<String>,
+    pub updated_at: String,
+    pub event_id: Option<String>,
+    pub sequence: Option<u64>,
+    pub kind: Option<String>,
+    pub timestamp: Option<String>,
+    pub match_field: String,
+    pub snippet: String,
+}
+
+impl From<SearchHit> for SearchHitDto {
+    fn from(value: SearchHit) -> Self {
+        Self {
+            session_id: value.session_id.to_string(),
+            session_name: value.session_name,
+            source: value.source.to_string(),
+            workspace: value.workspace,
+            updated_at: value.updated_at.to_rfc3339(),
+            event_id: value.event_id.map(|id| id.to_string()),
+            sequence: value.sequence,
+            kind: value.kind.map(|kind| kind.to_string()),
+            timestamp: value.timestamp.map(|time| time.to_rfc3339()),
+            match_field: value.match_field.as_str().to_string(),
+            snippet: value.snippet,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResultDto {
+    pub hits: Vec<SearchHitDto>,
+    pub has_more: bool,
+}
+
+impl From<SearchResult> for SearchResultDto {
+    fn from(value: SearchResult) -> Self {
+        Self {
+            hits: value.hits.into_iter().map(Into::into).collect(),
+            has_more: value.has_more,
         }
     }
 }

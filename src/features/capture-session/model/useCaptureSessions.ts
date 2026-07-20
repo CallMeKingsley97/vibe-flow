@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { listCaptureSessions } from "../../../shared/api/capture";
+import { listCaptureSessions, setSessionFavorite } from "../../../shared/api/capture";
 import type { CaptureSession, SessionSource } from "../../../shared/contracts/capture";
 import { formatError } from "../../../shared/lib/error";
 
@@ -15,28 +15,33 @@ function sessionsSignature(sessions: CaptureSession[]): string {
           session.model ?? "",
           session.totalTokens ?? "",
           session.name,
+          session.isFavorite ? "1" : "0",
         ].join(":"),
     )
     .join("|");
 }
 
-export function useCaptureSessions(source: SessionSource | "all" = "all") {
+export function useCaptureSessions(
+  source: SessionSource | "all" = "all",
+  favoriteOnly = false,
+) {
   const [sessions, setSessions] = useState<CaptureSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedRef = useRef(false);
   const signatureRef = useRef("");
   const sourceRef = useRef(source);
+  const favoriteRef = useRef(favoriteOnly);
 
   useEffect(() => {
-    // 切换来源时允许重新显示 loading，并清空签名缓存
-    if (sourceRef.current !== source) {
+    if (sourceRef.current !== source || favoriteRef.current !== favoriteOnly) {
       sourceRef.current = source;
+      favoriteRef.current = favoriteOnly;
       hasLoadedRef.current = false;
       signatureRef.current = "";
       setSessions([]);
     }
-  }, [source]);
+  }, [source, favoriteOnly]);
 
   const refresh = useCallback(async () => {
     if (!hasLoadedRef.current) {
@@ -47,8 +52,9 @@ export function useCaptureSessions(source: SessionSource | "all" = "all") {
         500,
         0,
         source === "all" ? undefined : source,
+        favoriteOnly,
       );
-      const signature = `${source}|${sessionsSignature(next)}`;
+      const signature = `${source}|${favoriteOnly}|${sessionsSignature(next)}`;
       if (signature !== signatureRef.current) {
         signatureRef.current = signature;
         setSessions(next);
@@ -60,11 +66,32 @@ export function useCaptureSessions(source: SessionSource | "all" = "all") {
     } finally {
       setLoading(false);
     }
-  }, [source]);
+  }, [source, favoriteOnly]);
+
+  const toggleFavorite = useCallback(
+    async (sessionId: string, favorite: boolean) => {
+      try {
+        const updated = await setSessionFavorite(sessionId, favorite);
+        setSessions((current) => {
+          if (favoriteOnly && !favorite) {
+            return current.filter((session) => session.id !== sessionId);
+          }
+          return current.map((session) => (session.id === sessionId ? updated : session));
+        });
+        signatureRef.current = "";
+        setError(null);
+        return updated;
+      } catch (reason) {
+        setError(formatError(reason));
+        throw reason;
+      }
+    },
+    [favoriteOnly],
+  );
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  return { sessions, loading, error, refresh };
+  return { sessions, loading, error, refresh, toggleFavorite };
 }

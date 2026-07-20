@@ -140,6 +140,86 @@ pub fn update_session_identity(usage: &mut SessionUsage, value: &Value) {
             .or_else(|| value.get("thinkingLevel")),
     )
     .or_else(|| usage.reasoning_effort.take());
+    if usage.base_url.is_none() {
+        usage.base_url = extract_base_url(value);
+    }
+}
+
+/// Normalize an API base URL for aggregation (trim trailing slash).
+pub fn normalize_base_url(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
+pub fn extract_base_url(value: &Value) -> Option<String> {
+    nonempty_string(
+        value
+            .get("base_url")
+            .or_else(|| value.get("baseUrl"))
+            .or_else(|| value.get("api_base"))
+            .or_else(|| value.get("apiBase"))
+            .or_else(|| value.get("endpoint")),
+    )
+    .and_then(|value| normalize_base_url(&value))
+}
+
+/// Resolve Codex provider id → `base_url` via `~/.codex/config.toml`.
+pub fn resolve_codex_base_url(home: &Path, provider_id: Option<&str>) -> Option<String> {
+    let config_path = home.join(".codex/config.toml");
+    let content = fs::read_to_string(config_path).ok()?;
+    let table = content.parse::<toml::Table>().ok()?;
+    let provider_id = provider_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            table
+                .get("model_provider")
+                .and_then(toml::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })?;
+    let providers = table.get("model_providers")?.as_table()?;
+    let provider = providers.get(provider_id.as_str())?.as_table()?;
+    provider
+        .get("base_url")
+        .and_then(toml::Value::as_str)
+        .and_then(normalize_base_url)
+}
+
+/// Resolve Claude `ANTHROPIC_BASE_URL` from settings.json / project settings.
+pub fn resolve_claude_base_url(home: &Path, workspace: Option<&str>) -> Option<String> {
+    let mut candidates = Vec::new();
+    if let Some(workspace) = workspace {
+        candidates.push(PathBuf::from(workspace).join(".claude/settings.local.json"));
+        candidates.push(PathBuf::from(workspace).join(".claude/settings.json"));
+    }
+    candidates.push(home.join(".claude/settings.local.json"));
+    candidates.push(home.join(".claude/settings.json"));
+
+    for path in candidates {
+        if let Some(base_url) = read_anthropic_base_url(&path) {
+            return Some(base_url);
+        }
+    }
+    None
+}
+
+fn read_anthropic_base_url(path: &Path) -> Option<String> {
+    let content = fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&content).ok()?;
+    let env = value.get("env")?;
+    nonempty_string(
+        env.get("ANTHROPIC_BASE_URL")
+            .or_else(|| env.get("ANTHROPIC_API_BASE"))
+            .or_else(|| env.get("CLAUDE_BASE_URL")),
+    )
+    .and_then(|value| normalize_base_url(&value))
 }
 
 pub fn add_generic_token_usage(usage: &mut SessionUsage, value: &Value) {

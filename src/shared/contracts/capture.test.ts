@@ -14,12 +14,14 @@ const validSession = {
   sourcePath: null,
   workspace: null,
   model: null,
+  baseUrl: null,
   reasoningEffort: null,
   inputTokens: null,
   cachedInputTokens: null,
   outputTokens: null,
   reasoningOutputTokens: null,
   totalTokens: null,
+  isFavorite: false,
   updatedAt: "2026-07-17T08:00:00Z",
 } as const;
 

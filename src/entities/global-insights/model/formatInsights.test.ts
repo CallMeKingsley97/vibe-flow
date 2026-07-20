@@ -28,6 +28,7 @@ function emptyInsights(overrides: Partial<GlobalInsights> = {}): GlobalInsights 
     },
     bySource: [],
     byProvider: [],
+    byBaseUrl: [],
     byProject: [],
     timeline: [],
     topTools: [],

@@ -21,6 +21,8 @@ pub enum SessionSource {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SessionUsage {
     pub model: Option<String>,
+    /// 模型背后的 API 提供商地址（如 Codex config `base_url` / Claude `ANTHROPIC_BASE_URL`）。
+    pub base_url: Option<String>,
     pub reasoning_effort: Option<String>,
     pub input_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
@@ -90,5 +92,8 @@ pub struct CaptureSession {
     pub source_path: Option<String>,
     pub workspace: Option<String>,
     pub usage: SessionUsage,
+    /// User annotation; not overwritten by history import.
+    pub is_favorite: bool,
     pub updated_at: DateTime<Utc>,
 }
+

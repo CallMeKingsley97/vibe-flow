@@ -18,6 +18,12 @@ export function SessionUsageSummary({
         <i>模型</i>
         <b>{session.model ?? "未知"}</b>
       </span>
+      {!compact && session.baseUrl ? (
+        <span className="session-base-url" title={session.baseUrl}>
+          <i>提供商</i>
+          <b>{session.baseUrl}</b>
+        </span>
+      ) : null}
       <span title={session.reasoningEffort ?? "Agent 历史未提供思考强度"}>
         <i>思考</i>
         <b>{formatReasoningEffort(session.reasoningEffort)}</b>

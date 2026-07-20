@@ -19,13 +19,17 @@ use crate::{
     },
     domain::{
         analytics::{
-            AnalyticsQuery, GlobalInsights, ProjectInsight, RankedItem, SourceInsight,
+            AnalyticsQuery, BaseUrlInsight, GlobalInsights, ProjectInsight, RankedItem, SourceInsight,
             TimeBucketPoint, TotalMetrics,
         },
         error::AppError,
         event::{AgentEvent, EventKind, EventLevel, EventSource},
         governance::{AgentDataSettings, CleanupPreview, CleanupResult, StorageStats},
         history::ImportedSession,
+        search::{
+            like_pattern, snippet_around, SearchHit, SearchMatchField, SearchQuery, SearchResult,
+            SearchScope,
+        },
         session::{CaptureSession, SessionSource, SessionStatus, SessionUsage},
     },
 };
@@ -47,12 +51,14 @@ struct SessionRow {
     source_path: Option<String>,
     workspace: Option<String>,
     model: Option<String>,
+    base_url: Option<String>,
     reasoning_effort: Option<String>,
     input_tokens: Option<i64>,
     cached_input_tokens: Option<i64>,
     output_tokens: Option<i64>,
     reasoning_output_tokens: Option<i64>,
     total_tokens: Option<i64>,
+    is_favorite: i64,
     updated_at: String,
 }
 
@@ -193,6 +199,7 @@ impl TryFrom<SessionRow> for CaptureSession {
             workspace: row.workspace,
             usage: SessionUsage {
                 model: row.model,
+                base_url: row.base_url,
                 reasoning_effort: row.reasoning_effort,
                 input_tokens: optional_nonnegative_u64(row.input_tokens)?,
                 cached_input_tokens: optional_nonnegative_u64(row.cached_input_tokens)?,
@@ -200,6 +207,7 @@ impl TryFrom<SessionRow> for CaptureSession {
                 reasoning_output_tokens: optional_nonnegative_u64(row.reasoning_output_tokens)?,
                 total_tokens: optional_nonnegative_u64(row.total_tokens)?,
             },
+            is_favorite: row.is_favorite != 0,
             updated_at: parse_time(&row.updated_at)?,
         })
     }
@@ -224,6 +232,13 @@ impl TryFrom<EventRow> for AgentEvent {
     }
 }
 
+
+const SESSION_SELECT: &str = "SELECT id, name, status, started_at, ended_at, last_sequence,
+                        source, external_id, source_path, workspace, model, base_url, reasoning_effort,
+                        input_tokens, cached_input_tokens, output_tokens,
+                        reasoning_output_tokens, total_tokens, is_favorite, updated_at
+                 FROM capture_sessions";
+
 #[async_trait]
 impl CaptureRepository for SqliteRepository {
     async fn list_sessions(
@@ -231,36 +246,58 @@ impl CaptureRepository for SqliteRepository {
         limit: u32,
         offset: u32,
         source: Option<SessionSource>,
+        favorite_only: bool,
     ) -> Result<Vec<CaptureSession>, AppError> {
-        let rows = if let Some(source) = source {
-            sqlx::query_as::<_, SessionRow>(
-                "SELECT id, name, status, started_at, ended_at, last_sequence,
-                        source, external_id, source_path, workspace, model, reasoning_effort,
-                        input_tokens, cached_input_tokens, output_tokens,
-                        reasoning_output_tokens, total_tokens, updated_at
-                 FROM capture_sessions
-                 WHERE source = ?
-                 ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-            )
-            .bind(source.to_string())
+        let mut sql = String::from(SESSION_SELECT);
+        let mut conditions = Vec::new();
+        if source.is_some() {
+            conditions.push("source = ?");
+        }
+        if favorite_only {
+            conditions.push("is_favorite = 1");
+        }
+        if !conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+        sql.push_str(" ORDER BY updated_at DESC LIMIT ? OFFSET ?");
+        let mut query = sqlx::query_as::<_, SessionRow>(&sql);
+        if let Some(source) = source {
+            query = query.bind(source.to_string());
+        }
+        let rows = query
             .bind(i64::from(limit))
             .bind(i64::from(offset))
             .fetch_all(&self.pool)
-            .await?
-        } else {
-            sqlx::query_as::<_, SessionRow>(
-                "SELECT id, name, status, started_at, ended_at, last_sequence,
-                        source, external_id, source_path, workspace, model, reasoning_effort,
-                        input_tokens, cached_input_tokens, output_tokens,
-                        reasoning_output_tokens, total_tokens, updated_at
-                 FROM capture_sessions ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-            )
-            .bind(i64::from(limit))
-            .bind(i64::from(offset))
-            .fetch_all(&self.pool)
-            .await?
-        };
+            .await?;
         rows.into_iter().map(TryInto::try_into).collect()
+    }
+
+    async fn set_session_favorite(
+        &self,
+        session_id: Uuid,
+        favorite: bool,
+    ) -> Result<CaptureSession, AppError> {
+        let result = sqlx::query("UPDATE capture_sessions SET is_favorite = ? WHERE id = ?")
+            .bind(i64::from(favorite))
+            .bind(session_id.to_string())
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::Validation(format!(
+                "session not found: {session_id}"
+            )));
+        }
+        let row = sqlx::query_as::<_, SessionRow>(&format!("{SESSION_SELECT} WHERE id = ?"))
+            .bind(session_id.to_string())
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::Validation(format!("session not found: {session_id}")))?;
+        row.try_into()
+    }
+
+    async fn search(&self, query: SearchQuery) -> Result<SearchResult, AppError> {
+        search_history(&self.pool, query).await
     }
 
     async fn list_events(
@@ -296,25 +333,28 @@ impl HistoryRepository for SqliteRepository {
         let id = Uuid::new_v5(&Uuid::NAMESPACE_URL, identity.as_bytes());
         let event_count = i64::try_from(session.events.len())
             .map_err(|error| AppError::Storage(error.to_string()))?;
-        // 以 sequence/name/model/tokens + 首尾事件摘要判断是否变更；
+        // 以 sequence/name/model/base_url/tokens + 首尾事件摘要判断是否变更；
         // 不依赖 updated_at（Cursor DB 的 fallback 时间戳会随文件 mtime 抖动）
-        let existing = sqlx::query_as::<_, (i64, String, Option<String>, Option<i64>)>(
-            "SELECT last_sequence, name, model, total_tokens FROM capture_sessions WHERE id = ?",
-        )
-        .bind(id.to_string())
-        .fetch_optional(&self.pool)
-        .await?;
-        if let Some((last_sequence, existing_name, model, total_tokens)) = existing {
+        let existing =
+            sqlx::query_as::<_, (i64, String, Option<String>, Option<String>, Option<i64>)>(
+                "SELECT last_sequence, name, model, base_url, total_tokens FROM capture_sessions WHERE id = ?",
+            )
+            .bind(id.to_string())
+            .fetch_optional(&self.pool)
+            .await?;
+        if let Some((last_sequence, existing_name, model, base_url, total_tokens)) = existing {
             let same_tokens = total_tokens
                 == session
                     .usage
                     .total_tokens
                     .and_then(|value| i64::try_from(value).ok());
             let same_model = model.as_deref() == session.usage.model.as_deref();
+            let same_base_url = base_url.as_deref() == session.usage.base_url.as_deref();
             let same_meta = last_sequence == event_count
                 && existing_name == session.name
                 && same_tokens
-                && same_model;
+                && same_model
+                && same_base_url;
             if same_meta {
                 let existing_edges = sqlx::query_as::<_, (i64, String)>(
                     "SELECT sequence, summary FROM agent_events
@@ -350,14 +390,15 @@ impl HistoryRepository for SqliteRepository {
         sqlx::query(
             "INSERT INTO capture_sessions
              (id, name, status, started_at, ended_at, last_sequence,
-              source, external_id, source_path, workspace, model, reasoning_effort,
+              source, external_id, source_path, workspace, model, base_url, reasoning_effort,
               input_tokens, cached_input_tokens, output_tokens,
               reasoning_output_tokens, total_tokens, updated_at)
-             VALUES (?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             VALUES (?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET name = excluded.name,
                started_at = excluded.started_at, ended_at = excluded.ended_at,
                last_sequence = excluded.last_sequence, source_path = excluded.source_path,
                workspace = excluded.workspace, model = excluded.model,
+               base_url = excluded.base_url,
                reasoning_effort = excluded.reasoning_effort,
                input_tokens = excluded.input_tokens,
                cached_input_tokens = excluded.cached_input_tokens,
@@ -376,6 +417,7 @@ impl HistoryRepository for SqliteRepository {
         .bind(session.source_path.display().to_string())
         .bind(&session.workspace)
         .bind(&session.usage.model)
+        .bind(&session.usage.base_url)
         .bind(&session.usage.reasoning_effort)
         .bind(
             session
@@ -597,6 +639,237 @@ async fn ranked(
         .collect()
 }
 
+
+#[allow(clippy::too_many_lines)]
+async fn search_history(pool: &SqlitePool, query: SearchQuery) -> Result<SearchResult, AppError> {
+    let pattern = like_pattern(&query.query);
+    let fetch_limit = i64::from(query.limit) + 1;
+    let mut clauses: Vec<String> = Vec::new();
+    let mut include_sessions = false;
+    let mut include_messages = false;
+    let mut include_tools = false;
+    let mut include_skills = false;
+    let mut include_mcp = false;
+    let mut include_commands = false;
+    match query.scope {
+        SearchScope::All => {
+            include_sessions = true;
+            include_messages = true;
+            include_tools = true;
+            include_skills = true;
+            include_mcp = true;
+            include_commands = true;
+        }
+        SearchScope::Sessions => include_sessions = true,
+        SearchScope::Messages => include_messages = true,
+        SearchScope::Tools => include_tools = true,
+        SearchScope::Skills => include_skills = true,
+        SearchScope::Mcp => include_mcp = true,
+        SearchScope::Commands => include_commands = true,
+    }
+
+    let mut session_filter = String::new();
+    if query.source.is_some() {
+        session_filter.push_str(" AND s.source = ?");
+    }
+    if query.workspace.is_some() {
+        session_filter.push_str(" AND s.workspace = ?");
+    }
+
+    if include_sessions {
+        clauses.push(format!(
+            "SELECT s.id AS session_id, s.name AS session_name, s.source AS source,
+                    s.workspace AS workspace, s.updated_at AS sort_key,
+                    NULL AS event_id, NULL AS sequence, NULL AS kind, NULL AS timestamp,
+                    CASE
+                      WHEN s.name LIKE ? ESCAPE '\\' THEN 'session_name'
+                      ELSE 'workspace'
+                    END AS match_field,
+                    CASE
+                      WHEN s.name LIKE ? ESCAPE '\\' THEN s.name
+                      ELSE COALESCE(s.workspace, '')
+                    END AS snippet
+             FROM capture_sessions s
+             WHERE (s.name LIKE ? ESCAPE '\\' OR COALESCE(s.workspace, '') LIKE ? ESCAPE '\\')
+             {session_filter}"
+        ));
+    }
+    if include_messages {
+        clauses.push(format!(
+            "SELECT s.id, s.name, s.source, s.workspace, e.timestamp AS sort_key,
+                    e.id, e.sequence, e.kind, e.timestamp,
+                    'summary' AS match_field, e.summary AS snippet
+             FROM capture_sessions s
+             JOIN agent_events e ON e.session_id = s.id
+             WHERE e.kind = 'message' AND e.summary LIKE ? ESCAPE '\\'
+             {session_filter}"
+        ));
+    }
+    if include_tools {
+        clauses.push(format!(
+            "SELECT s.id, s.name, s.source, s.workspace, e.timestamp AS sort_key,
+                    e.id, e.sequence, e.kind, e.timestamp,
+                    'tool_name' AS match_field,
+                    COALESCE(json_extract(e.payload, '$.toolName'), e.summary) AS snippet
+             FROM capture_sessions s
+             JOIN agent_events e ON e.session_id = s.id
+             WHERE e.kind = 'tool_call'
+               AND COALESCE(json_extract(e.payload, '$.toolName'), '') LIKE ? ESCAPE '\\'
+             {session_filter}"
+        ));
+    }
+    if include_skills {
+        clauses.push(format!(
+            "SELECT s.id, s.name, s.source, s.workspace, e.timestamp AS sort_key,
+                    e.id, e.sequence, e.kind, e.timestamp,
+                    'skill' AS match_field,
+                    COALESCE(json_extract(e.payload, '$.skillName'), '') AS snippet
+             FROM capture_sessions s
+             JOIN agent_events e ON e.session_id = s.id
+             WHERE e.kind = 'tool_call'
+               AND COALESCE(json_extract(e.payload, '$.skillName'), '') LIKE ? ESCAPE '\\'
+             {session_filter}"
+        ));
+    }
+    if include_mcp {
+        clauses.push(format!(
+            "SELECT s.id, s.name, s.source, s.workspace, e.timestamp AS sort_key,
+                    e.id, e.sequence, e.kind, e.timestamp,
+                    'mcp' AS match_field,
+                    COALESCE(json_extract(e.payload, '$.mcpServer'), '') AS snippet
+             FROM capture_sessions s
+             JOIN agent_events e ON e.session_id = s.id
+             WHERE e.kind = 'tool_call'
+               AND COALESCE(json_extract(e.payload, '$.mcpServer'), '') LIKE ? ESCAPE '\\'
+             {session_filter}"
+        ));
+    }
+    if include_commands {
+        clauses.push(format!(
+            "SELECT s.id, s.name, s.source, s.workspace, e.timestamp AS sort_key,
+                    e.id, e.sequence, e.kind, e.timestamp,
+                    'command' AS match_field,
+                    COALESCE(json_extract(e.payload, '$.command'), e.summary) AS snippet
+             FROM capture_sessions s
+             JOIN agent_events e ON e.session_id = s.id
+             WHERE e.kind = 'tool_call'
+               AND (
+                 COALESCE(json_extract(e.payload, '$.command'), '') LIKE ? ESCAPE '\\'
+                 OR e.payload LIKE ? ESCAPE '\\'
+               )
+             {session_filter}"
+        ));
+    }
+
+    if clauses.is_empty() {
+        return Ok(SearchResult {
+            hits: Vec::new(),
+            has_more: false,
+        });
+    }
+
+    let union_sql = format!(
+        "SELECT * FROM ({}) ORDER BY sort_key DESC LIMIT ? OFFSET ?",
+        clauses.join(" UNION ALL ")
+    );
+
+    let mut q = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            String,
+            String,
+        ),
+    >(&union_sql);
+
+    if include_sessions {
+        q = q.bind(&pattern).bind(&pattern).bind(&pattern).bind(&pattern);
+        if let Some(source) = query.source {
+            q = q.bind(source.to_string());
+        }
+        if let Some(workspace) = query.workspace.as_ref() {
+            q = q.bind(workspace);
+        }
+    }
+    for include in [include_messages, include_tools, include_skills, include_mcp] {
+        if include {
+            q = q.bind(&pattern);
+            if let Some(source) = query.source {
+                q = q.bind(source.to_string());
+            }
+            if let Some(workspace) = query.workspace.as_ref() {
+                q = q.bind(workspace);
+            }
+        }
+    }
+    if include_commands {
+        q = q.bind(&pattern).bind(&pattern);
+        if let Some(source) = query.source {
+            q = q.bind(source.to_string());
+        }
+        if let Some(workspace) = query.workspace.as_ref() {
+            q = q.bind(workspace);
+        }
+    }
+    q = q
+        .bind(fetch_limit)
+        .bind(i64::from(query.offset));
+
+    let rows = q.fetch_all(pool).await?;
+    let has_more = rows.len() > usize::try_from(query.limit).unwrap_or(usize::MAX);
+    let mut hits = Vec::new();
+    for (
+        session_id,
+        session_name,
+        source,
+        workspace,
+        sort_key,
+        event_id,
+        sequence,
+        kind,
+        timestamp,
+        match_field,
+        snippet,
+    ) in rows.into_iter().take(usize::try_from(query.limit).unwrap_or(0))
+    {
+        let match_field = SearchMatchField::parse(&match_field)?;
+        let snippet = snippet_around(&snippet, &query.query, 160);
+        hits.push(SearchHit {
+            session_id: Uuid::parse_str(&session_id)
+                .map_err(|error| AppError::Storage(error.to_string()))?,
+            session_name,
+            source: SessionSource::from_str(&source)?,
+            workspace,
+            updated_at: parse_time(&sort_key).or_else(|_| {
+                timestamp
+                    .as_deref()
+                    .map(parse_time)
+                    .transpose()?
+                    .ok_or_else(|| AppError::Storage("missing sort timestamp".into()))
+            })?,
+            event_id: event_id
+                .as_deref()
+                .map(Uuid::parse_str)
+                .transpose()
+                .map_err(|error| AppError::Storage(error.to_string()))?,
+            sequence: sequence.map(nonnegative_u64).transpose()?,
+            kind: kind.as_deref().map(EventKind::from_str).transpose()?,
+            timestamp: timestamp.as_deref().map(parse_time).transpose()?,
+            match_field,
+            snippet,
+        });
+    }
+    Ok(SearchResult { hits, has_more })
+}
+
 #[async_trait]
 impl AnalyticsRepository for SqliteRepository {
     #[allow(clippy::too_many_lines)]
@@ -779,6 +1052,47 @@ impl AnalyticsRepository for SqliteRepository {
             });
         }
 
+        // Per base_url aggregation from capture_sessions.base_url.
+        let base_url_sql = format!(
+            "SELECT COALESCE(NULLIF(TRIM(s.base_url), ''), '未知提供商'),
+                    COUNT(DISTINCT s.id),
+                    COUNT(e.id),
+                    SUM(CASE WHEN e.level = 'error' OR json_extract(e.payload, '$.failed') = 1 THEN 1 ELSE 0 END),
+                    COALESCE(SUM(s.total_tokens), 0)
+             FROM capture_sessions s
+             LEFT JOIN agent_events e ON e.session_id = s.id
+             WHERE s.updated_at BETWEEN ? AND ?{source_clause}{workspace_clause}
+             GROUP BY COALESCE(NULLIF(TRIM(s.base_url), ''), '未知提供商')
+             ORDER BY COUNT(DISTINCT s.id) DESC, COALESCE(SUM(s.total_tokens), 0) DESC
+             LIMIT ?"
+        );
+        let mut base_url_query = sqlx::query_as::<
+            _,
+            (
+                String,
+                i64,
+                Option<i64>,
+                Option<i64>,
+                Option<i64>,
+            ),
+        >(&base_url_sql);
+        for value in &base_binds {
+            base_url_query = base_url_query.bind(value);
+        }
+        base_url_query =
+            base_url_query.bind(i64::from(query.ranking_limit.max(query.project_limit)));
+        let base_url_rows = base_url_query.fetch_all(&self.pool).await?;
+        let mut by_base_url = Vec::with_capacity(base_url_rows.len());
+        for (base_url, sessions, events, errors, tokens) in base_url_rows {
+            by_base_url.push(BaseUrlInsight {
+                base_url,
+                sessions: nonnegative_u64(sessions)?,
+                events: nonnegative_u64(events.unwrap_or(0).max(0))?,
+                errors: nonnegative_u64(errors.unwrap_or(0).max(0))?,
+                total_tokens: nonnegative_u64(tokens.unwrap_or(0).max(0))?,
+            });
+        }
+
         // Per-workspace aggregation. Sessions with NULL workspace are grouped as "未分类".
         let project_sql = format!(
             "SELECT COALESCE(NULLIF(TRIM(s.workspace), ''), '未分类'),
@@ -890,6 +1204,7 @@ impl AnalyticsRepository for SqliteRepository {
             totals,
             by_source,
             by_provider,
+            by_base_url,
             by_project,
             timeline,
             top_tools,
@@ -917,6 +1232,7 @@ mod tests {
             event::{EventKind, EventLevel, EventSource},
             governance::AgentDataSettings,
             history::{ImportedEvent, ImportedSession},
+            search::{SearchMatchField, SearchQuery, SearchScope},
             session::{SessionSource, SessionUsage},
         },
     };
@@ -1028,7 +1344,7 @@ mod tests {
         let restored = SqliteRepository::connect(&path)
             .await
             .expect("reopen")
-            .list_sessions(10, 0, None)
+            .list_sessions(10, 0, None, false)
             .await
             .expect("restore");
         assert!(restored.iter().any(|session| {
@@ -1067,12 +1383,12 @@ mod tests {
                 .expect("import");
         }
         let gemini = repository
-            .list_sessions(10, 0, Some(SessionSource::Gemini))
+            .list_sessions(10, 0, Some(SessionSource::Gemini), false)
             .await
             .expect("gemini");
         assert_eq!(gemini.len(), 1);
         assert_eq!(gemini[0].source, SessionSource::Gemini);
-        let all = repository.list_sessions(10, 0, None).await.expect("all");
+        let all = repository.list_sessions(10, 0, None, false).await.expect("all");
         assert_eq!(all.len(), 3);
     }
 
@@ -1178,7 +1494,7 @@ mod tests {
         );
         assert!(
             repository
-                .list_sessions(10, 0, None)
+                .list_sessions(10, 0, None, false)
                 .await
                 .expect("remaining sessions")
                 .iter()
@@ -1515,7 +1831,7 @@ mod tests {
             .expect("import");
 
         let sessions = repository
-            .list_sessions(10, 0, None)
+            .list_sessions(10, 0, None, false)
             .await
             .expect("sessions");
         let session_id = sessions[0].id;
@@ -1642,5 +1958,112 @@ mod tests {
             elapsed.as_millis() < 1_500,
             "global_insights should stay interactive; took {elapsed:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn preserves_favorite_across_reimport() {
+        let repository = SqliteRepository::in_memory().await.expect("database");
+        let timestamp = Utc::now();
+        let make = |summary: &str| ImportedSession {
+            source: SessionSource::Codex,
+            external_id: "fav-session".into(),
+            name: "Favorite session".into(),
+            workspace: Some("/repo".into()),
+            usage: SessionUsage::default(),
+            source_path: "/tmp/fav.jsonl".into(),
+            started_at: timestamp,
+            updated_at: timestamp,
+            events: vec![ImportedEvent {
+                timestamp,
+                source: EventSource::User,
+                kind: EventKind::Message,
+                level: EventLevel::Info,
+                summary: summary.into(),
+                payload: json!({}),
+            }],
+        };
+        let id = repository
+            .import_session(make("first"))
+            .await
+            .expect("import")
+            .session_id;
+        repository
+            .set_session_favorite(id, true)
+            .await
+            .expect("favorite");
+        repository
+            .import_session(make("updated"))
+            .await
+            .expect("reimport");
+        let favorites = repository
+            .list_sessions(10, 0, None, true)
+            .await
+            .expect("favorites");
+        assert_eq!(favorites.len(), 1);
+        assert!(favorites[0].is_favorite);
+        assert_eq!(
+            repository.list_events(id, 0, 10).await.expect("events")[0].summary,
+            "updated"
+        );
+    }
+
+    #[tokio::test]
+    async fn search_finds_session_name_and_message() {
+        let repository = SqliteRepository::in_memory().await.expect("database");
+        let stamp = Utc::now();
+        repository
+            .import_session(session(
+                SessionSource::Claude,
+                "search-unique-alpha",
+                Some("/tmp/search-ws"),
+                stamp,
+                stamp,
+                vec![ImportedEvent {
+                    timestamp: stamp,
+                    source: EventSource::User,
+                    kind: EventKind::Message,
+                    level: EventLevel::Info,
+                    summary: "please run cargo test now".into(),
+                    payload: json!({}),
+                }],
+                None,
+            ))
+            .await
+            .expect("import");
+
+        let by_name = repository
+            .search(
+                SearchQuery::new(
+                    "unique-alpha",
+                    None,
+                    None,
+                    SearchScope::Sessions,
+                    20,
+                    0,
+                )
+                .expect("query"),
+            )
+            .await
+            .expect("search name");
+        assert!(!by_name.hits.is_empty());
+        assert_eq!(by_name.hits[0].match_field, SearchMatchField::SessionName);
+
+        let by_message = repository
+            .search(
+                SearchQuery::new(
+                    "cargo test",
+                    None,
+                    None,
+                    SearchScope::Messages,
+                    20,
+                    0,
+                )
+                .expect("query"),
+            )
+            .await
+            .expect("search message");
+        assert!(!by_message.hits.is_empty());
+        assert!(by_message.hits[0].event_id.is_some());
+        assert_eq!(by_message.hits[0].match_field, SearchMatchField::Summary);
     }
 }
