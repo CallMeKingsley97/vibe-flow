@@ -7,7 +7,7 @@ use std::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{
-    FromRow, SqlitePool,
+    FromRow, Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
 use uuid::Uuid;
@@ -93,7 +93,7 @@ impl SqliteRepository {
             .max_connections(5)
             .connect_with(options)
             .await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        run_migrations(&pool).await?;
         let integrity: String = sqlx::query_scalar("PRAGMA quick_check")
             .fetch_one(&pool)
             .await?;
@@ -126,9 +126,194 @@ impl SqliteRepository {
             .max_connections(1)
             .connect_with(options)
             .await?;
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        run_migrations(&pool).await?;
         Ok(Self { pool })
     }
+}
+
+async fn run_migrations(pool: &SqlitePool) -> Result<(), AppError> {
+    let migrator = sqlx::migrate!("./migrations");
+    match migrator.run(pool).await {
+        Ok(()) => Ok(()),
+        Err(error) if is_modified_migration_error(&error) => {
+            // 历史版本曾改写已发布 migration，启动时自动补齐 schema 并同步 checksum。
+            repair_rewritten_migrations(pool, &migrator).await?;
+            migrator.run(pool).await?;
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn is_modified_migration_error(error: &sqlx::migrate::MigrateError) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("previously applied but has been modified")
+        || (message.contains("migration version") && message.contains("modified"))
+}
+
+async fn repair_rewritten_migrations(
+    pool: &SqlitePool,
+    migrator: &sqlx::migrate::Migrator,
+) -> Result<(), AppError> {
+    ensure_current_session_schema(pool).await?;
+    migrate_legacy_session_annotations(pool).await?;
+
+    for migration in migrator.iter() {
+        let existing: Option<(String, Vec<u8>)> = sqlx::query_as(
+            "SELECT description, checksum FROM _sqlx_migrations WHERE version = ?",
+        )
+        .bind(migration.version)
+        .fetch_optional(pool)
+        .await?;
+
+        if let Some((description, checksum)) = existing {
+            let checksum_matches = checksum.as_slice() == migration.checksum.as_ref();
+            let description_matches = description == migration.description;
+            if checksum_matches && description_matches {
+                continue;
+            }
+            sqlx::query(
+                "UPDATE _sqlx_migrations
+                 SET description = ?, checksum = ?, success = 1
+                 WHERE version = ?",
+            )
+            .bind(migration.description.as_ref())
+            .bind(migration.checksum.as_ref())
+            .bind(migration.version)
+            .execute(pool)
+            .await?;
+            continue;
+        }
+
+        // 修复路径会先幂等补齐 schema；若目标效果已存在，则直接登记迁移，避免重复执行失败。
+        if migration_effects_already_present(pool, migration.version).await? {
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations
+                    (version, description, installed_on, success, checksum, execution_time)
+                 VALUES (?, ?, CURRENT_TIMESTAMP, 1, ?, 0)",
+            )
+            .bind(migration.version)
+            .bind(migration.description.as_ref())
+            .bind(migration.checksum.as_ref())
+            .execute(pool)
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn migration_effects_already_present(
+    pool: &SqlitePool,
+    version: i64,
+) -> Result<bool, AppError> {
+    match version {
+        10 => column_exists(pool, "capture_sessions", "base_url").await,
+        11 => {
+            Ok(column_exists(pool, "capture_sessions", "is_favorite").await?
+                && column_exists(pool, "capture_sessions", "user_tags").await?)
+        }
+        _ => Ok(false),
+    }
+}
+
+async fn ensure_current_session_schema(pool: &SqlitePool) -> Result<(), AppError> {
+    ensure_column(pool, "capture_sessions", "base_url", "TEXT").await?;
+    ensure_column(
+        pool,
+        "capture_sessions",
+        "is_favorite",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
+    ensure_column(
+        pool,
+        "capture_sessions",
+        "user_tags",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )
+    .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_favorite
+         ON capture_sessions(is_favorite) WHERE is_favorite = 1",
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn ensure_column(
+    pool: &SqlitePool,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> Result<(), AppError> {
+    if column_exists(pool, table, column).await? {
+        return Ok(());
+    }
+    let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
+async fn column_exists(pool: &SqlitePool, table: &str, column: &str) -> Result<bool, AppError> {
+    // PRAGMA 不支持绑定参数，这里仅接受内部固定表名/字段名。
+    let sql = format!("PRAGMA table_info({table})");
+    let rows = sqlx::query(&sql).fetch_all(pool).await?;
+    for row in rows {
+        let name: String = row.try_get("name")?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn table_exists(pool: &SqlitePool, table: &str) -> Result<bool, AppError> {
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+    )
+    .bind(table)
+    .fetch_optional(pool)
+    .await?;
+    Ok(exists.is_some())
+}
+
+async fn migrate_legacy_session_annotations(pool: &SqlitePool) -> Result<(), AppError> {
+    if !table_exists(pool, "session_annotations").await? {
+        return Ok(());
+    }
+    if !column_exists(pool, "capture_sessions", "is_favorite").await? {
+        return Ok(());
+    }
+
+    // 旧版 migration 10 把收藏/标签放在独立表，尽量回填到当前 session 字段。
+    sqlx::query(
+        "UPDATE capture_sessions
+         SET is_favorite = CASE
+                WHEN EXISTS (
+                    SELECT 1 FROM session_annotations a
+                    WHERE a.session_id = capture_sessions.id AND a.favorite = 1
+                ) THEN 1
+                ELSE is_favorite
+             END,
+             user_tags = COALESCE(
+                (
+                    SELECT a.tags
+                    FROM session_annotations a
+                    WHERE a.session_id = capture_sessions.id
+                      AND a.tags IS NOT NULL
+                      AND TRIM(a.tags) != ''
+                      AND a.tags != '[]'
+                    LIMIT 1
+                ),
+                user_tags
+             )
+         WHERE id IN (SELECT session_id FROM session_annotations)",
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 fn is_database_corruption(error: &AppError) -> bool {
@@ -1238,6 +1423,141 @@ mod tests {
     };
 
     use super::SqliteRepository;
+
+    #[tokio::test]
+    async fn repairs_rewritten_migration_checksum_and_missing_schema() {
+        let path = std::env::temp_dir().join(format!(
+            "vibe-flow-migration-repair-{}.sqlite3",
+            Uuid::new_v4()
+        ));
+        let repository = SqliteRepository::connect(&path).await.expect("initial connect");
+        repository.ping().await.expect("ping");
+        drop(repository);
+
+        // 模拟历史改写：migration 10 描述/checksum 失配，且 11 尚未登记。
+        let options = sqlx::sqlite::SqliteConnectOptions::new().filename(&path).foreign_keys(true);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("open fixture pool");
+        sqlx::query(
+            "UPDATE _sqlx_migrations
+             SET description = 'session annotations and risk',
+                 checksum = x'62068C3D4359135CED9529D6CC3F2C6469DD12AA29EF8AF2B34307A8440AB916BDB05E9698C493AE4E21150ADCD74E68'
+             WHERE version = 10",
+        )
+        .execute(&pool)
+        .await
+        .expect("corrupt migration 10");
+        sqlx::query("DELETE FROM _sqlx_migrations WHERE version >= 11")
+            .execute(&pool)
+            .await
+            .expect("drop later migrations");
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS session_annotations (
+                session_id TEXT PRIMARY KEY NOT NULL,
+                favorite INTEGER NOT NULL DEFAULT 0,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                alias TEXT,
+                note TEXT,
+                tags TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy annotations");
+        // 构造“旧 schema”：移除新列，但保留主键约束。
+        sqlx::raw_sql(
+            "CREATE TABLE capture_sessions_legacy (
+                id TEXT PRIMARY KEY NOT NULL,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'stopped',
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                last_sequence INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL,
+                external_id TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                workspace TEXT,
+                model TEXT,
+                reasoning_effort TEXT,
+                input_tokens INTEGER,
+                cached_input_tokens INTEGER,
+                output_tokens INTEGER,
+                reasoning_output_tokens INTEGER,
+                total_tokens INTEGER,
+                updated_at TEXT NOT NULL
+             );
+             INSERT INTO capture_sessions_legacy
+                (id, name, status, started_at, ended_at, last_sequence,
+                 source, external_id, source_path, workspace, model,
+                 reasoning_effort, input_tokens, cached_input_tokens,
+                 output_tokens, reasoning_output_tokens, total_tokens, updated_at)
+             SELECT id, name, status, started_at, ended_at, last_sequence,
+                    source, external_id, source_path, workspace, model,
+                    reasoning_effort, input_tokens, cached_input_tokens,
+                    output_tokens, reasoning_output_tokens, total_tokens, updated_at
+             FROM capture_sessions;
+             DROP TABLE capture_sessions;
+             ALTER TABLE capture_sessions_legacy RENAME TO capture_sessions;
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_capture_sessions_external_source_id
+                ON capture_sessions(source, external_id);
+             CREATE INDEX IF NOT EXISTS idx_capture_sessions_source_updated_at
+                ON capture_sessions(source, updated_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_capture_sessions_started_at
+                ON capture_sessions(started_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_capture_sessions_updated_at
+                ON capture_sessions(updated_at);",
+        )
+        .execute(&pool)
+        .await
+        .expect("downgrade schema");
+        pool.close().await;
+
+        let repaired = SqliteRepository::connect(&path)
+            .await
+            .expect("repaired connect");
+        // 确认新列可写可读。
+        let now = Utc::now();
+        let id = repaired
+            .import_session(ImportedSession {
+                source: SessionSource::Codex,
+                external_id: "migration-repair".into(),
+                name: "Migration repair".into(),
+                workspace: None,
+                usage: SessionUsage {
+                    base_url: Some("https://example.com/v1".into()),
+                    model: Some("gpt-test".into()),
+                    ..SessionUsage::default()
+                },
+                source_path: "/tmp/migration-repair.jsonl".into(),
+                started_at: now,
+                updated_at: now,
+                events: vec![],
+            })
+            .await
+            .expect("import after repair")
+            .session_id;
+        repaired
+            .set_session_favorite(id, true)
+            .await
+            .expect("favorite after repair");
+        let listed = repaired
+            .list_sessions(10, 0, None, true)
+            .await
+            .expect("favorite list");
+        assert!(listed.iter().any(|session| {
+            session.id == id
+                && session.is_favorite
+                && session.usage.base_url.as_deref() == Some("https://example.com/v1")
+        }));
+
+        for suffix in ["", "-shm", "-wal"] {
+            let _ = fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
 
     #[tokio::test]
     async fn backs_up_and_recovers_a_corrupt_database() {
