@@ -29,6 +29,10 @@ Vibe Flow 的视觉基调对齐 Apple SwiftUI 与 macOS 系统应用：
 | Separator | `--separator` / `--separator-opaque` |
 | Tint | `--tint` / `--tint-strong` / `--tint-soft` |
 | Semantic | `--critical` / `--warning` / `--caution` / `--positive` |
+| Semantic Soft | `--critical-soft` / `--warning-soft` / `--caution-soft` / `--positive-soft` |
+| Ambient | `--surface-app-ambient`（页面背景环境光） |
+
+页面背景优先使用 `--surface-app-ambient`（含克制的径向环境光），避免直接写死纯色。
 
 强调色（tint）保持青绿色系（`--tint`），与既有品牌延续。危险与警告色只在真实风险和错误中使用，不做装饰。
 
