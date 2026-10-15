@@ -226,9 +226,7 @@ export function DashboardPage() {
                         : "当前按时间顺序，点击切换为时间倒序"
                     }
                     className="session-sort-toggle"
-                    onClick={() =>
-                      setSortOrder((value) => (value === "desc" ? "asc" : "desc"))
-                    }
+                    onClick={() => setSortOrder((value) => (value === "desc" ? "asc" : "desc"))}
                     title={sortOrder === "desc" ? "时间倒序（最新优先）" : "时间顺序（最早优先）"}
                     type="button"
                   >

@@ -6,25 +6,21 @@ import { formatError } from "../../../shared/lib/error";
 
 function sessionsSignature(sessions: CaptureSession[]): string {
   return sessions
-    .map(
-      (session) =>
-        [
-          session.id,
-          session.updatedAt,
-          session.lastSequence,
-          session.model ?? "",
-          session.totalTokens ?? "",
-          session.name,
-          session.isFavorite ? "1" : "0",
-        ].join(":"),
+    .map((session) =>
+      [
+        session.id,
+        session.updatedAt,
+        session.lastSequence,
+        session.model ?? "",
+        session.totalTokens ?? "",
+        session.name,
+        session.isFavorite ? "1" : "0",
+      ].join(":"),
     )
     .join("|");
 }
 
-export function useCaptureSessions(
-  source: SessionSource | "all" = "all",
-  favoriteOnly = false,
-) {
+export function useCaptureSessions(source: SessionSource | "all" = "all", favoriteOnly = false) {
   const [sessions, setSessions] = useState<CaptureSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

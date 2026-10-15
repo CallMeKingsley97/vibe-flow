@@ -9,8 +9,8 @@ describe("formatError", () => {
   });
 
   it("maps browser Tauri invoke failures to a friendly desktop message", () => {
-    expect(formatError(new Error("Cannot read properties of undefined (reading 'invoke')"))).toContain(
-      "桌面后端",
-    );
+    expect(
+      formatError(new Error("Cannot read properties of undefined (reading 'invoke')")),
+    ).toContain("桌面后端");
   });
 });

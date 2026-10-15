@@ -69,9 +69,7 @@ export async function setSessionFavorite(
   );
 }
 
-export async function searchAgentHistory(
-  query: SearchAgentHistoryQuery,
-): Promise<SearchResult> {
+export async function searchAgentHistory(query: SearchAgentHistoryQuery): Promise<SearchResult> {
   return SearchResultSchema.parse(
     await invoke<unknown>("search_agent_history", {
       query: query.query,
