@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import {
-  buildExecutionFlow,
-  type ExecutionFlowNode,
-} from "../../entities/execution-flow/model/buildExecutionFlow";
+import { analyzeEventRisk } from "../../entities/agent-command/model/analyzeAgentCommands";
+import { buildExecutionFlow } from "../../entities/execution-flow/model/buildExecutionFlow";
 import type { AgentEvent } from "../../shared/contracts/capture";
+
+export type FlowView = "all" | "risk";
 
 interface ExecutionFlowProps {
   events: AgentEvent[];
-  initialView?: "all" | "risk";
-  onSelectEvent: (eventId: string) => void;
+  initialView?: FlowView;
+  view?: FlowView;
+  onViewChange?: (view: FlowView) => void;
+  onSelectEvent?: (eventId: string) => void;
 }
 
 const timeFormatter = new Intl.DateTimeFormat("zh-CN", {
@@ -18,205 +20,136 @@ const timeFormatter = new Intl.DateTimeFormat("zh-CN", {
   second: "2-digit",
 });
 
-const criticalKinds = new Set<ExecutionFlowNode["kind"]>(["skill", "mcp", "file", "error", "plan"]);
-const PAGE_SIZE = 8;
-
-function isRiskNode(node: ExecutionFlowNode) {
-  return node.riskLevel === "high" || node.riskLevel === "critical";
-}
-
-function collapsedNodes(nodes: ExecutionFlowNode[]) {
-  if (nodes.length <= 12) return nodes;
-  const selected = new Map<string, ExecutionFlowNode>();
-  for (const node of nodes.slice(0, 3)) selected.set(node.id, node);
-  for (const node of nodes.filter((item) => criticalKinds.has(item.kind)).slice(0, 7)) {
-    selected.set(node.id, node);
-  }
-  for (const node of nodes.filter(isRiskNode)) selected.set(node.id, node);
-  for (const node of nodes.slice(-4)) selected.set(node.id, node);
-  return [...selected.values()].sort((left, right) => left.startSequence - right.startSequence);
-}
-
-export function ExecutionFlow({ events, initialView = "all", onSelectEvent }: ExecutionFlowProps) {
+export function ExecutionFlow({
+  events,
+  initialView = "all",
+  view: controlledView,
+  onViewChange,
+  onSelectEvent,
+}: ExecutionFlowProps) {
   const flow = useMemo(() => buildExecutionFlow(events), [events]);
-  const [expandedPhase, setExpandedPhase] = useState<string | null>(null);
-  const [view, setView] = useState<"all" | "risk">(initialView);
-  const [page, setPage] = useState(0);
-
-  const visiblePhases = useMemo(
+  const [localView, setLocalView] = useState<FlowView>(initialView);
+  const view = controlledView ?? localView;
+  const riskEntries = useMemo(
     () =>
-      view === "risk" ? flow.phases.filter((phase) => phase.nodes.some(isRiskNode)) : flow.phases,
-    [flow.phases, view],
+      events
+        .map((event) => ({ event, risk: analyzeEventRisk(event) }))
+        .filter(({ event, risk }) => event.level === "error" || risk.level !== "none"),
+    [events],
   );
-  const pageCount = Math.max(1, Math.ceil(visiblePhases.length / PAGE_SIZE));
-  const pagePhases = visiblePhases.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-
-  useEffect(() => {
-    setPage((current) => Math.min(current, pageCount - 1));
-  }, [pageCount]);
-
   if (!flow.phases.length) return null;
 
+  function changeView(next: FlowView) {
+    setLocalView(next);
+    onViewChange?.(next);
+  }
+
   return (
-    <section className="execution-flow">
-      <div className="execution-flow-header">
-        <div>
-          <span className="eyebrow">PROCESS OVERVIEW</span>
-          <h3>执行流程</h3>
-          <p>先看目标和关键动作；点击任一节点可定位到下方原始事件。</p>
-        </div>
-        <div className="flow-metrics">
-          <span>
-            阶段 <b>{flow.phases.length}</b>
-          </span>
-          <span>
-            Skill <b>{flow.metrics.skills}</b>
-          </span>
-          <span>
-            MCP <b>{flow.metrics.mcpCalls}</b>
-          </span>
-          <span>
-            工具 <b>{flow.metrics.toolCalls}</b>
-          </span>
-          <span>
-            文件 <b>{flow.metrics.fileChanges}</b>
-          </span>
-          <span>
-            命令 <b>{flow.metrics.commands}</b>
-          </span>
-          <span className={flow.metrics.errors ? "has-error" : ""}>
-            错误 <b>{flow.metrics.errors}</b>
-          </span>
-          <span className={flow.metrics.riskyOperations ? "has-risk" : ""}>
-            高危 <b>{flow.metrics.riskyOperations}</b>
+    <section className="conversation-overview" aria-label="会话执行概览">
+      <div className="conversation-overview-row">
+        <div className="conversation-title">
+          <span className="eyebrow">CONVERSATION</span>
+          <h3>对话与执行轨迹</h3>
+          <span className="conversation-total" aria-label={`${events.length} 个事件`}>
+            <strong>{events.length}</strong> 个事件
           </span>
         </div>
-      </div>
-      <div className="flow-navigation">
-        <div className="flow-view-switch" role="tablist" aria-label="流程显示范围">
+        <div className="conversation-scope" role="tablist" aria-label="消息范围">
           <button
+            aria-label="全部消息"
+            aria-selected={view === "all"}
             className={view === "all" ? "active" : ""}
-            onClick={() => {
-              setView("all");
-              setPage(0);
-            }}
+            onClick={() => changeView("all")}
             role="tab"
             type="button"
           >
-            全部阶段
+            全部消息 <span>{events.length}</span>
           </button>
           <button
+            aria-label="只看高危"
+            aria-selected={view === "risk"}
             className={view === "risk" ? "active" : ""}
-            onClick={() => {
-              setView("risk");
-              setPage(0);
-            }}
+            onClick={() => changeView("risk")}
             role="tab"
             type="button"
           >
-            只看高危
+            只看高危 <span>{riskEntries.length}</span>
           </button>
         </div>
-        <div className="flow-pager">
-          <button disabled={page === 0} onClick={() => setPage((value) => value - 1)} type="button">
-            ←
-          </button>
-          <span>
-            {visiblePhases.length ? page * PAGE_SIZE + 1 : 0}–
-            {Math.min((page + 1) * PAGE_SIZE, visiblePhases.length)} / {visiblePhases.length}
-          </span>
-          <button
-            disabled={page >= pageCount - 1}
-            onClick={() => setPage((value) => value + 1)}
-            type="button"
-          >
-            →
-          </button>
-          <button
-            disabled={page >= pageCount - 1}
-            onClick={() => setPage(pageCount - 1)}
-            type="button"
-          >
-            最近阶段
-          </button>
-        </div>
+        <details className="conversation-summary">
+          <summary>
+            执行摘要 <span>{flow.phases.length} 轮</span>
+          </summary>
+          <div className="conversation-stat-list" aria-label="执行统计">
+            <span>
+              <b>{flow.phases.length}</b> 轮对话
+            </span>
+            <span>
+              <b>{flow.metrics.toolCalls}</b> 工具
+            </span>
+            <span>
+              <b>{flow.metrics.commands}</b> 命令
+            </span>
+            <span>
+              <b>{flow.metrics.fileChanges}</b> 文件
+            </span>
+            <span className={flow.metrics.errors ? "is-error" : ""}>
+              <b>{flow.metrics.errors}</b> 错误
+            </span>
+            <span className={flow.metrics.riskyOperations ? "is-risk" : ""}>
+              <b>{flow.metrics.riskyOperations}</b> 高危
+            </span>
+          </div>
+        </details>
       </div>
-      {visiblePhases.length > PAGE_SIZE ? (
-        <div className="flow-minimap" aria-label="长会话阶段导航">
-          {visiblePhases.map((phase, index) => {
-            const hasRisk = phase.nodes.some(isRiskNode);
-            const hasError = phase.nodes.some((node) => node.kind === "error");
-            return (
-              <button
-                aria-label={`阶段 ${index + 1}：${phase.title}`}
-                className={`${Math.floor(index / PAGE_SIZE) === page ? "active" : ""} ${hasRisk ? "has-risk" : ""} ${hasError ? "has-error" : ""}`}
-                key={phase.id}
-                onClick={() => setPage(Math.floor(index / PAGE_SIZE))}
-                title={`${index + 1}. ${phase.title}`}
-                type="button"
-              />
-            );
-          })}
-        </div>
-      ) : null}
-      <div className="flow-phase-track">
-        {pagePhases.map((phase) => {
-          const phaseIndex = flow.phases.indexOf(phase);
-          const expanded = expandedPhase === phase.id;
-          const nodes = expanded ? phase.nodes : collapsedNodes(phase.nodes);
-          const hiddenCount = phase.nodes.length - nodes.length;
-          return (
-            <article
-              className={`flow-phase ${phase.nodes.some(isRiskNode) ? "has-risk" : ""}`}
-              key={phase.id}
-            >
-              <header>
-                <div className="flow-phase-index">{phaseIndex + 1}</div>
-                <div>
-                  <time>{timeFormatter.format(new Date(phase.startedAt))}</time>
-                  <h4 title={phase.title}>{phase.title}</h4>
-                </div>
-              </header>
-              <div className="flow-node-list">
-                {nodes.length ? (
-                  nodes.map((node) => (
-                    <button
-                      className={`flow-node kind-${node.kind} risk-${node.riskLevel}`}
-                      key={node.id}
-                      onClick={() => onSelectEvent(node.eventId)}
-                      title={node.detail ?? node.label}
-                      type="button"
-                    >
-                      <i />
-                      <span>
-                        <small>{timeFormatter.format(new Date(node.startedAt))}</small>
-                        <strong>{node.label}</strong>
-                        {node.detail ? <em>{node.detail}</em> : null}
-                        {node.riskReason ? <mark>{node.riskReason}</mark> : null}
-                      </span>
-                      {node.count > 1 ? <b>×{node.count}</b> : null}
-                    </button>
-                  ))
-                ) : (
-                  <div className="flow-empty">该阶段只有对话消息</div>
-                )}
-              </div>
-              {hiddenCount > 0 || expanded ? (
+      {view === "risk" ? (
+        <div className="conversation-risk-panel">
+          <div className="conversation-risk-heading">
+            <span className="eyebrow">RISK REVIEW</span>
+            <strong>需要你留意的操作</strong>
+            <span>{riskEntries.length} 项</span>
+          </div>
+          {riskEntries.length ? (
+            <div className="conversation-risk-list">
+              {riskEntries.slice(0, 6).map(({ event, risk }) => (
                 <button
-                  className="flow-expand"
-                  onClick={() => setExpandedPhase(expanded ? null : phase.id)}
+                  className={`conversation-risk-item risk-${risk.level}`}
+                  key={event.id}
+                  onClick={() => onSelectEvent?.(event.id)}
+                  title={
+                    typeof event.payload.command === "string"
+                      ? event.payload.command
+                      : event.summary
+                  }
                   type="button"
                 >
-                  {expanded ? "收起关键节点" : `展开另外 ${hiddenCount} 个节点`}
+                  <i className="conversation-risk-dot" />
+                  <span>
+                    <strong>
+                      {event.level === "error"
+                        ? "错误事件"
+                        : risk.level === "critical"
+                          ? "严重风险"
+                          : risk.level === "high"
+                            ? "高危操作"
+                            : "需要注意"}
+                    </strong>
+                    <span>{event.summary}</span>
+                  </span>
+                  <time>{timeFormatter.format(new Date(event.timestamp))}</time>
                 </button>
-              ) : null}
-            </article>
-          );
-        })}
-        {!pagePhases.length ? (
-          <div className="flow-filter-empty">当前会话没有高危操作阶段</div>
-        ) : null}
-      </div>
+              ))}
+            </div>
+          ) : (
+            <p className="conversation-risk-empty">没有发现命中当前风险规则的操作。</p>
+          )}
+          {riskEntries.length > 6 ? (
+            <span className="conversation-risk-more">
+              仅显示最近 6 项，完整记录可在对话中查看。
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }
