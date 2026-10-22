@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { analyzeEventRisk } from "../../entities/agent-command/model/analyzeAgentCommands";
 import type { AgentEvent } from "../../shared/contracts/capture";
 import { CollapsibleText } from "../../shared/ui/CollapsibleText";
+import { Icon, type IconName } from "../../shared/ui/icons";
 import { ExecutionFlow, type FlowView } from "../execution-flow/ExecutionFlow";
 
 interface ThoughtTimelineProps {
@@ -81,6 +82,17 @@ function eventTone(event: AgentEvent) {
     return "action";
   }
   return "system";
+}
+
+function eventIcon(event: AgentEvent): IconName {
+  if (event.kind === "message" && event.source === "user") return "user";
+  if (event.level === "error") return "alert";
+  if (event.kind === "command") return "terminal";
+  if (event.kind === "file_change") return "file";
+  if (event.kind === "tool_call" || event.kind === "tool_result") return "tool";
+  if (event.kind === "reasoning") return "sparkles";
+  if (event.kind === "llm_usage") return "cpu";
+  return "sparkles";
 }
 
 function matchesFilter(event: AgentEvent, filter: ConversationFilter) {
@@ -200,10 +212,7 @@ export function ThoughtTimeline({
 
           <div className="chat-toolbar-controls">
             <label className="chat-search">
-              <svg aria-hidden="true" viewBox="0 0 20 20">
-                <circle cx="8.5" cy="8.5" r="4.75" />
-                <path d="m12 12 4 4" />
-              </svg>
+              <Icon name="search" size={15} />
               <input
                 aria-label="搜索会话内容"
                 value={query}
@@ -307,12 +316,11 @@ export function ThoughtTimeline({
                 ) : null}
                 <div className="chat-row">
                   {!userMessage ? (
-                    <div className="chat-avatar" aria-hidden="true">
-                      {eventTone(event) === "action"
-                        ? "↳"
-                        : eventTone(event) === "error"
-                          ? "!"
-                          : "A"}
+                    <div
+                      className={`chat-avatar chat-avatar-${eventTone(event)}`}
+                      aria-hidden="true"
+                    >
+                      <Icon name={eventIcon(event)} size={14} />
                     </div>
                   ) : null}
                   <div className="chat-message">
@@ -362,7 +370,7 @@ export function ThoughtTimeline({
                   </div>
                   {userMessage ? (
                     <div className="chat-avatar chat-avatar-user" aria-hidden="true">
-                      U
+                      <Icon name="user" size={14} />
                     </div>
                   ) : null}
                 </div>

@@ -1,17 +1,8 @@
-import type {
-  GlobalInsights,
-  SessionSource,
-  TimeBucketPoint,
-} from "../../../shared/contracts/capture";
+import type { GlobalInsights, TimeBucketPoint } from "../../../shared/contracts/capture";
 
 export type InsightRange = "7d" | "30d" | "90d" | "custom";
 
-export const sourceLabels: Record<SessionSource, string> = {
-  codex: "Codex",
-  claude: "Claude",
-  gemini: "Gemini",
-  cursor: "Cursor",
-};
+export { sessionSourceLabels as sourceLabels } from "../../../shared/lib/sessionSource";
 
 export function rangeWindow(range: InsightRange, now = new Date()): { from: string; to: string } {
   const to = now;

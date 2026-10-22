@@ -5,6 +5,7 @@ import {
   type RankedAgentItem,
 } from "../../entities/agent-insights/model/buildAgentInsights";
 import type { AgentEvent } from "../../shared/contracts/capture";
+import { Icon } from "../../shared/ui/icons";
 
 interface AgentInsightsProps {
   events: AgentEvent[];
@@ -96,9 +97,14 @@ export function AgentInsights({ events, loading, onSelectEvent }: AgentInsightsP
       </div>
       <section className={`risk-operations ${data.riskOperations.length ? "has-risk" : ""}`}>
         <header>
-          <div>
-            <span className="eyebrow">RISK REVIEW</span>
-            <h4>高危与需注意操作</h4>
+          <div className="section-heading">
+            <span className="section-icon">
+              <Icon name="shield" size={15} />
+            </span>
+            <div>
+              <span className="eyebrow">RISK REVIEW</span>
+              <h4>高危与需注意操作</h4>
+            </div>
           </div>
           <strong>{data.riskOperations.length}</strong>
         </header>
@@ -133,6 +139,7 @@ export function AgentInsights({ events, loading, onSelectEvent }: AgentInsightsP
       </div>
       <details className="command-audit">
         <summary>
+          <Icon name="terminal" size={15} />
           命令记录 <span>{data.commandObservations.length}</span>
         </summary>
         {data.commandObservations.length ? (

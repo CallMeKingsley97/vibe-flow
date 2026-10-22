@@ -1,4 +1,5 @@
 import type { CleanupPreview } from "../../shared/contracts/capture";
+import { Icon } from "../../shared/ui/icons";
 
 interface RetentionSettingsCardProps {
   retentionDays: number;
@@ -28,9 +29,14 @@ export function RetentionSettingsCard({
   return (
     <section className="panel settings-card retention-settings-card">
       <div className="settings-card-header">
-        <div>
-          <h3>保留与清理</h3>
-          <p>只清理 Vibe Flow 的本地副本，不修改 Agent 的原始历史文件。</p>
+        <div className="card-heading">
+          <span className="section-icon">
+            <Icon name="shield" size={15} />
+          </span>
+          <div>
+            <h3>保留与清理</h3>
+            <p>只清理 Vibe Flow 的本地副本，不修改 Agent 的原始历史文件。</p>
+          </div>
         </div>
       </div>
       <div className="settings-control-grid">
@@ -57,14 +63,14 @@ export function RetentionSettingsCard({
                 onClick={() => updateRetention(retentionDays + 1)}
                 type="button"
               >
-                +
+                <Icon name="plus" size={13} />
               </button>
               <button
                 aria-label="减少一天"
                 onClick={() => updateRetention(retentionDays - 1)}
                 type="button"
               >
-                −
+                <Icon name="minus" size={13} />
               </button>
             </span>
           </div>

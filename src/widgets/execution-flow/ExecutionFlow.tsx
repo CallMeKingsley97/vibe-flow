@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { analyzeEventRisk } from "../../entities/agent-command/model/analyzeAgentCommands";
 import { buildExecutionFlow } from "../../entities/execution-flow/model/buildExecutionFlow";
 import type { AgentEvent } from "../../shared/contracts/capture";
+import { Icon } from "../../shared/ui/icons";
 
 export type FlowView = "all" | "risk";
 
@@ -105,9 +106,12 @@ export function ExecutionFlow({
       {view === "risk" ? (
         <div className="conversation-risk-panel">
           <div className="conversation-risk-heading">
+            <span className="section-icon">
+              <Icon name="shield" size={14} />
+            </span>
             <span className="eyebrow">RISK REVIEW</span>
             <strong>需要你留意的操作</strong>
-            <span>{riskEntries.length} 项</span>
+            <span className="conversation-risk-count">{riskEntries.length} 项</span>
           </div>
           {riskEntries.length ? (
             <div className="conversation-risk-list">
@@ -124,7 +128,7 @@ export function ExecutionFlow({
                   type="button"
                 >
                   <i className="conversation-risk-dot" />
-                  <span>
+                  <span className="conversation-risk-copy">
                     <strong>
                       {event.level === "error"
                         ? "错误事件"

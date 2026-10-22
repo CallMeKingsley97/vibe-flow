@@ -13,6 +13,7 @@ import type {
   SessionSource,
   TimeBucketPoint,
 } from "../../shared/contracts/capture";
+import { Icon, type IconName } from "../../shared/ui/icons";
 
 interface GlobalInsightsProps {
   data: GlobalInsights | null;
@@ -48,15 +49,32 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
   day: "2-digit",
 });
 
+function CardHeading({ icon, eyebrow, title }: { icon: IconName; eyebrow: string; title: string }) {
+  return (
+    <div className="card-heading">
+      <span className="section-icon">
+        <Icon name={icon} size={15} />
+      </span>
+      <div>
+        <span className="eyebrow">{eyebrow}</span>
+        <h3>{title}</h3>
+      </div>
+    </div>
+  );
+}
+
 function TrendChart({ points, bucket }: { points: TimeBucketPoint[]; bucket: "day" | "week" }) {
   const max = Math.max(1, maxBucketValue(points, "sessions"));
   if (!points.length) {
     return <div className="insights-empty">当前范围内还没有可视化的数据。</div>;
   }
+  // Keep the axis readable: with many buckets only label a handful of bars.
+  const labelEvery = Math.max(1, Math.ceil(points.length / 7));
   return (
     <div className="insights-trend" aria-label={`${bucket === "day" ? "按日" : "按周"}趋势`}>
-      {points.map((point) => {
-        const height = Math.max(6, Math.round((point.sessions / max) * 96));
+      {points.map((point, index) => {
+        const height = Math.max(4, Math.round((point.sessions / max) * 96));
+        const showLabel = index % labelEvery === 0 || index === points.length - 1;
         return (
           <div
             className={`insights-trend-bar${point.errors ? " has-error" : ""}`}
@@ -64,7 +82,7 @@ function TrendChart({ points, bucket }: { points: TimeBucketPoint[]; bucket: "da
             title={`${formatBucketLabel(point.bucket)} · ${point.sessions} 会话 · ${point.errors} 错误`}
           >
             <span style={{ height: `${height}px` }} />
-            <em>{formatBucketLabel(point.bucket)}</em>
+            <em>{showLabel ? formatBucketLabel(point.bucket) : ""}</em>
           </div>
         );
       })}
@@ -174,6 +192,7 @@ function InsightsControls({
         </button>
       </div>
       <button className="insights-refresh" onClick={onRefresh} type="button">
+        <Icon name="refresh" size={14} />
         刷新
       </button>
     </div>
@@ -327,10 +346,7 @@ export function GlobalInsightsView({
 
         <section className="insights-card">
           <header>
-            <div>
-              <span className="eyebrow">AGENT COMPARE</span>
-              <h3>Agent 对比</h3>
-            </div>
+            <CardHeading eyebrow="AGENT COMPARE" icon="layers" title="Agent 对比" />
           </header>
           {data.bySource.length ? (
             <div className="insights-compare">
@@ -352,10 +368,7 @@ export function GlobalInsightsView({
 
         <section className="insights-card">
           <header>
-            <div>
-              <span className="eyebrow">MODEL COMPARE</span>
-              <h3>模型对比</h3>
-            </div>
+            <CardHeading eyebrow="MODEL COMPARE" icon="cpu" title="模型对比" />
             <small>按会话模型名聚合 · 看错误与用量</small>
           </header>
           {data.byProvider.length ? (
@@ -392,10 +405,7 @@ export function GlobalInsightsView({
 
         <section className="insights-card">
           <header>
-            <div>
-              <span className="eyebrow">BASE URL COMPARE</span>
-              <h3>API 提供商对比</h3>
-            </div>
+            <CardHeading eyebrow="BASE URL COMPARE" icon="database" title="API 提供商对比" />
             <small>按 base_url 聚合 · 模型背后的 API 端点</small>
           </header>
           {data.byBaseUrl.length ? (
@@ -432,10 +442,7 @@ export function GlobalInsightsView({
 
         <section className="insights-card">
           <header>
-            <div>
-              <span className="eyebrow">TIMELINE</span>
-              <h3>时间趋势</h3>
-            </div>
+            <CardHeading eyebrow="TIMELINE" icon="activity" title="时间趋势" />
             <small>
               {bucket === "day" ? "按日" : "按周"} · {data.timeline.length} 桶
             </small>
@@ -445,10 +452,7 @@ export function GlobalInsightsView({
 
         <section className="insights-card">
           <header>
-            <div>
-              <span className="eyebrow">TOP PROJECTS</span>
-              <h3>项目对比</h3>
-            </div>
+            <CardHeading eyebrow="TOP PROJECTS" icon="folder" title="项目对比" />
             <small>点击进入 Dashboard 并过滤</small>
           </header>
           {data.byProject.length ? (
@@ -478,10 +482,7 @@ export function GlobalInsightsView({
 
         <section className="insights-card insights-ranking-card">
           <header>
-            <div>
-              <span className="eyebrow">RANKINGS</span>
-              <h3>使用排行</h3>
-            </div>
+            <CardHeading eyebrow="RANKINGS" icon="insights" title="使用排行" />
           </header>
           <div className="insights-ranking-grid">
             <Ranking title="常用工具" items={data.topTools} empty="没有工具调用" />
